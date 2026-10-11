@@ -4,7 +4,7 @@
 > **Version:** 0.1.0
 > **Date:** 2026-10-11
 > **Design status:** Approved starting point; implementation not started
-> **Implementation status:** Django placeholder app only
+> **Implementation status:** Phase 1 models and calculation services implemented; user interface remains a placeholder
 >
 > This document records the agreed starting design from the Food module discovery interview. It should be updated as implementation and real-world use expose better decisions. It does not override the wider guidance in [docs/project-design.md](../project-design.md).
 
@@ -288,8 +288,9 @@ These questions must remain visible rather than being silently resolved during i
 
 ## 13. Proposed development milestones
 
-- [ ] Define Food models and calculation value objects.
-- [ ] Implement ingredients, products, nutrition profiles, and price observations.
+- [x] Define the minimum Food models and calculation value objects for Phase 1.
+- [x] Implement the initial FoodItem, PriceObservation, and ConsumptionEntry models with direct nutrition fields and historical snapshots.
+- [x] Implement reusable nutrition scaling, allocated cost, and daily aggregation services.
 - [ ] Implement consumption entries and daily summaries.
 - [ ] Add quick logging, history, targets, and cost metrics.
 - [ ] Add recipe and meal-prep batch workflows.
@@ -314,9 +315,9 @@ Milestone ordering should be revisited if the meal-preparation prioritisation qu
 
 ## 15. Current implementation status
 
-**Implemented:** The repository contains a Django `apps.food` placeholder with a placeholder page and HTTP 200 coverage.
+**Implemented:** Phase 1 now contains `FoodItem`, `PriceObservation`, and `ConsumptionEntry` models, the initial Food migration, reusable nutrition/cost/daily aggregation services, and focused automated tests. The configured reporting timezone is `Europe/Dublin`.
 
-**Planned:** All Food domain models, calculations, catalog workflows, consumption tracking, recipe workflows, meal-prep workflows, cost analysis, and AI tool integrations remain planned.
+**Planned:** Catalogue forms and pages, consumption logging pages, richer daily summaries, recipes, meal-prep workflows, cost analysis UI, and AI tool integrations remain planned. The `/food/` page is still a placeholder because frontend work is deferred to Phase 2.
 
 This status should be updated as milestones are completed. Planned requirements must not be described as implemented until they exist in working code and have been tested.
 
@@ -325,3 +326,4 @@ This status should be updated as milestones are completed. Planned requirements 
 | Version | Date | Change |
 |---|---|---|
 | 0.1.0 | 2026-10-11 | Recorded the approved starting design from the Food module discovery interview. |
+| 0.2.0 | 2026-10-11 | Recorded implementation of Phase 1 models, migration, calculation services, Europe/Dublin timezone, and automated tests. |

@@ -23,6 +23,8 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 5. Add calculation services under `backend/apps/food/services/` or the smallest local service module that matches repository conventions. Keep functions for scaling nutrition from per-100 basis values, deriving allocated cost from package price/quantity, and aggregating daily totals. Services should be callable by views now and future AI tools later.
 6. Add unit tests for scaling, Decimal rounding, g/ml mismatch, nullable nutrition/cost, cost allocation, and daily aggregation before wiring the UI.
 
+**Phase 1 status: Implemented.** The minimum models, initial migration, reusable calculation services, `Europe/Dublin` reporting timezone, and focused model/service tests are complete. No forms, views, templates, recipes, meal preparation, AI, or infrastructure were added.
+
 ### Phase 2: Catalogue workflow
 7. Add `backend/apps/food/forms.py` for FoodItem and optional PriceObservation create/edit flows. Do not create generic form abstractions.
 8. Extend `backend/apps/food/views.py` and `backend/apps/food/urls.py` with catalogue list, create, edit, and detail or price-entry routes. Use application services for normalization/validation where business rules are involved.
@@ -68,7 +70,7 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 8. Review mobile/narrow layout and visible incomplete-data/estimated-cost labels.
 
 **Open questions / pre-implementation checks**
-- Exact IANA timezone for the Windows host remains to be supplied; recommendation is the host’s actual local zone.
+- The reporting timezone is resolved as `Europe/Dublin` for this milestone.
 - Whether basic meal preparation should be moved earlier remains deferred and does not affect this slice unless the user changes milestone order.
 - Grocery purchase expenditure versus allocated consumed cost remains explicitly outside this milestone; only estimated consumed cost is calculated.
 - Density, serving-size conversions, count units, and household measures remain deferred; g/ml basis matching is the first-slice rule.
