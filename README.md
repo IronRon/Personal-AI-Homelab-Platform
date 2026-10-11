@@ -171,3 +171,4 @@ python manage.py test
 ## Documentation
 
 - [Project design](docs/project-design.md): requirements, architecture, modules, technology comparisons, AI safety model, data strategy, job system, and roadmap notes.
+- [Food module design](docs/modules/food-design.md): the living requirements and planned design for Food tracking, nutrition, recipes, meal preparation, and cost analysis.

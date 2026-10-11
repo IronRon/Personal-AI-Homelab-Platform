@@ -202,6 +202,8 @@ The IDs below are useful for discussion and testing; they are not a complete spe
 
 **Proposed first major module.** It is small enough to finish, immediately useful, and exercises relational modelling, imports, calculations, dashboards, AI tools, and mobile UI.
 
+The detailed, living specification is maintained in [docs/modules/food-design.md](modules/food-design.md). This document provides the wider platform architecture and principles; the module document records Food-specific requirements, decisions, open questions, milestones, and acceptance criteria.
+
 ### Candidate entities
 
 | Entity | Purpose |
