@@ -27,6 +27,7 @@ build/
 
 # Django and local application data
 *.log
+*.sqlite3
 db.sqlite3
 db.sqlite3-journal
 local_settings.py

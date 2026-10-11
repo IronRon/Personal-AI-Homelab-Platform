@@ -106,6 +106,68 @@ The layout will grow as implementation begins. The design document includes an i
 
 No application code has been implemented yet. The repository currently contains the project design and foundational documentation. Technology decisions remain open where the design document marks them as proposed or under consideration.
 
+## Development setup
+
+### Python requirements
+
+Use Python 3.12, 3.13, or 3.14. This project was initialized with Python 3.14 and Django 6.1.2.
+
+### Create and activate a virtual environment
+
+```powershell
+cd "C:\Users\Ronak\Documents\Coding\Personal AI Homelab Platform"
+py -3.14 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+If PowerShell policy blocks activation, invoke the interpreter directly instead of activating:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+### Install dependencies
+
+```powershell
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+### Run the project
+
+```powershell
+cd backend
+python manage.py migrate
+python manage.py runserver 127.0.0.1:8000
+```
+
+### Run tests
+
+```powershell
+cd backend
+python manage.py test
+```
+
+### Project structure
+
+```text
+.
+├── backend/
+│   ├── apps/
+│   │   ├── core/
+│   │   └── food/
+│   ├── config/
+│   ├── templates/
+│   ├── manage.py
+│   └── db.sqlite3
+├── docs/
+│   └── project-design.md
+├── .gitignore
+├── README.md
+├── requirements.txt
+└── .venv/
+```
+
 ## Documentation
 
 - [Project design](docs/project-design.md): requirements, architecture, modules, technology comparisons, AI safety model, data strategy, job system, and roadmap notes.

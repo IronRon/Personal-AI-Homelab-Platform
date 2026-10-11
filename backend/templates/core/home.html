@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+
+{% block title %}Home | Personal AI Homelab Platform{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <h1>Personal AI Homelab Platform</h1>
+    <p>
+      A modular local-first platform for personal automation, useful tools, AI-assisted workflows,
+      and domain-specific modules that can grow over time.
+    </p>
+  </section>
+
+  <section class="cards" aria-label="Platform modules">
+    {% for module in modules %}
+      <article class="card">
+        <h3>{{ module.name }}</h3>
+        <p>{{ module.description }}</p>
+        {% if module.coming_soon %}
+          <span class="pill ghost">Coming Soon</span>
+        {% else %}
+          <div class="actions">
+            <a href="{{ module.link }}" class="button">Open</a>
+          </div>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </section>
+{% endblock %}
