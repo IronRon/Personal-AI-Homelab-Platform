@@ -1,16 +1,54 @@
 {% extends 'base.html' %}
 
-{% block title %}Food | Personal AI Homelab Platform{% endblock %}
+{% block title %}Food Catalogue | Personal AI Homelab Platform{% endblock %}
 
 {% block content %}
-  <section class="page-shell">
-    <h2>Food Module</h2>
-    <p class="muted">
-      This is the initial placeholder page for the Food module. It will later grow into recipes,
-      nutrition tracking, meal prep planning, and shopping workflows.
-    </p>
+  <section class="hero">
+    <h1>Food Catalogue</h1>
+    <p>Reusable ingredients and products with nutrition information and price history.</p>
     <div class="actions">
-      <a href="/" class="button secondary">Back to home</a>
+      <a href="{% url 'food_item_create' %}" class="button">Add food item</a>
     </div>
+  </section>
+
+  <section class="page-shell">
+    <form method="get" role="search">
+      <p>
+        <label for="catalogue-search">Search by name or brand</label>
+        <input id="catalogue-search" name="q" value="{{ search_query }}" type="search" placeholder="For example, oats or brand name" />
+      </p>
+      <div class="actions">
+        <button type="submit" class="button">Search</button>
+        {% if search_query %}
+          <a href="{% url 'catalogue' %}" class="button secondary">Clear</a>
+        {% endif %}
+      </div>
+    </form>
+
+    {% if food_items %}
+      <div class="cards" aria-label="Food catalogue items">
+        {% for food_item in food_items %}
+          <article class="card">
+            <span class="pill">{{ food_item.get_item_type_display }}</span>
+            <h3>{{ food_item }}</h3>
+            <p>
+              Nutrition per 100 {{ food_item.nutrition_basis_unit }}:
+              {{ food_item.calories_per_100|default_if_none:"—" }} kcal,
+              {{ food_item.protein_per_100|default_if_none:"—" }} g protein,
+              {{ food_item.carbohydrates_per_100|default_if_none:"—" }} g carbohydrates,
+              {{ food_item.fat_per_100|default_if_none:"—" }} g fat.
+            </p>
+            <div class="actions">
+              <a href="{% url 'food_item_detail' food_item.pk %}" class="button secondary">View details</a>
+              <a href="{% url 'food_item_edit' food_item.pk %}" class="button secondary">Edit</a>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty-state">
+        {% if search_query %}No food items match “{{ search_query }}”.{% else %}No food items have been added yet.{% endif %}
+      </p>
+    {% endif %}
   </section>
 {% endblock %}

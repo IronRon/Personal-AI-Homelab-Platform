@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if is_edit %}Edit{% else %}Add{% endif %} Food Item | Personal AI Homelab Platform{% endblock %}
+
+{% block content %}
+  <section class="page-shell">
+    <h2>{% if is_edit %}Edit food item{% else %}Add food item{% endif %}</h2>
+    <p class="muted">Leave nutrition fields blank when values are unknown. Blank values are not treated as zero.</p>
+
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <div class="form-grid">
+        {% for field in form %}
+          <p>
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+            {{ field.errors }}
+          </p>
+        {% endfor %}
+      </div>
+      <div class="actions">
+        <button type="submit" class="button">Save food item</button>
+        <a href="{% if is_edit %}{% url 'food_item_detail' form.instance.pk %}{% else %}{% url 'catalogue' %}{% endif %}" class="button secondary">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

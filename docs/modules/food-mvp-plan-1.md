@@ -31,6 +31,8 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 9. Add `backend/templates/food/catalogue.html`, `food/food_item_form.html`, and any narrowly needed partials. Reuse `backend/templates/base.html` styling and navigation. Keep the pages responsive and functional rather than adding a frontend framework.
 10. Add catalogue integration tests covering create/edit, invalid nutrition/price values, optional prices, ingredient/product type, unit basis, and browser-visible list/form behavior.
 
+**Phase 2 status: Implemented.** Catalogue listing/search, FoodItem create/edit forms, nutrition validation, price observation create/edit forms, price history, success messages, responsive templates, and integration tests are complete. Consumption logging and snapshot-creation services remain deferred to Phase 3.
+
 ### Phase 3: Consumption workflow and Today dashboard
 11. Add a consumption form supporting FoodItem search/selection, quantity in the matching g/ml basis, optional meal category, and date/time with a local-time default.
 12. Add routes/views for logging, today’s entries, history, edit, and confirmed delete. Use POST plus CSRF protection for mutations and redirect after successful writes.

@@ -144,6 +144,70 @@
       .muted {
         color: var(--muted);
       }
+      .messages {
+        display: grid;
+        gap: 0.6rem;
+        margin-bottom: 1rem;
+      }
+      .message {
+        border: 1px solid rgba(34, 197, 94, 0.35);
+        border-radius: 10px;
+        padding: 0.75rem 1rem;
+        background: rgba(34, 197, 94, 0.12);
+        color: #bbf7d0;
+      }
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1rem;
+      }
+      form p {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        margin: 0;
+      }
+      form label {
+        font-weight: 700;
+      }
+      form input,
+      form select {
+        width: 100%;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 0.65rem 0.75rem;
+        font: inherit;
+      }
+      .helptext {
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      .errorlist {
+        margin: 0;
+        padding-left: 1rem;
+        color: #fecaca;
+      }
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+      }
+      .data-table th,
+      .data-table td {
+        padding: 0.7rem 0.5rem;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+      .data-table th {
+        color: var(--muted);
+        font-size: 0.8rem;
+        text-transform: uppercase;
+      }
+      .empty-state {
+        color: var(--muted);
+        padding: 1rem 0;
+      }
       @media (max-width: 640px) {
         .nav {
           flex-direction: column;
@@ -153,6 +217,10 @@
         }
         .page-shell {
           padding: 1.25rem;
+        }
+        .data-table {
+          display: block;
+          overflow-x: auto;
         }
       }
     </style>
@@ -169,6 +237,13 @@
     </header>
 
     <main class="container content">
+      {% if messages %}
+        <div class="messages" aria-live="polite">
+          {% for message in messages %}
+            <div class="message">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
       {% block content %}{% endblock %}
     </main>
   </body>

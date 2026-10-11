@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if is_edit %}Edit{% else %}Add{% endif %} Price | {{ food_item }}{% endblock %}
+
+{% block content %}
+  <section class="page-shell">
+    <h2>{% if is_edit %}Edit{% else %}Add{% endif %} price observation</h2>
+    <p class="muted">Food item: {{ food_item }}. Package units must match the nutrition basis: {{ food_item.nutrition_basis_unit }}.</p>
+
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <div class="form-grid">
+        {% for field in form %}
+          <p>
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+            {{ field.errors }}
+          </p>
+        {% endfor %}
+      </div>
+      <div class="actions">
+        <button type="submit" class="button">Save price observation</button>
+        <a href="{% url 'food_item_detail' food_item.pk %}" class="button secondary">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

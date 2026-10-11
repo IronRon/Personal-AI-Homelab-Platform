@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ food_item }} | Food Catalogue{% endblock %}
+
+{% block content %}
+  <section class="page-shell">
+    <span class="pill">{{ food_item.get_item_type_display }}</span>
+    <h2>{{ food_item }}</h2>
+    {% if food_item.nutrition_source %}<p class="muted">Nutrition source: {{ food_item.nutrition_source }}</p>{% endif %}
+
+    <table class="data-table">
+      <caption class="muted">Nutrition per 100 {{ food_item.nutrition_basis_unit }}</caption>
+      <thead>
+        <tr>
+          <th>Calories</th>
+          <th>Protein</th>
+          <th>Carbohydrates</th>
+          <th>Fat</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>{{ food_item.calories_per_100|default_if_none:"—" }} kcal</td>
+          <td>{{ food_item.protein_per_100|default_if_none:"—" }} g</td>
+          <td>{{ food_item.carbohydrates_per_100|default_if_none:"—" }} g</td>
+          <td>{{ food_item.fat_per_100|default_if_none:"—" }} g</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="actions">
+      <a href="{% url 'food_item_edit' food_item.pk %}" class="button">Edit food item</a>
+      <a href="{% url 'price_observation_create' food_item.pk %}" class="button">Add price observation</a>
+      <a href="{% url 'catalogue' %}" class="button secondary">Back to catalogue</a>
+    </div>
+  </section>
+
+  <section class="page-shell" style="margin-top: 1.25rem;">
+    <h2>Price history</h2>
+    {% if price_observations %}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Package</th>
+            <th>Actual price</th>
+            <th>Reference price</th>
+            <th>Source</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for price in price_observations %}
+            <tr>
+              <td>{{ price.observed_at|date:"Y-m-d H:i" }}</td>
+              <td>{{ price.package_quantity }} {{ price.package_unit }}</td>
+              <td>{{ price.paid_price }} {{ price.currency }}</td>
+              <td>{{ price.reference_price|default_if_none:"—" }}</td>
+              <td>{{ price.source|default_if_none:"—" }}</td>
+              <td><a href="{% url 'price_observation_edit' food_item.pk price.pk %}">Edit</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty-state">No price observations have been recorded.</p>
+    {% endif %}
+  </section>
+{% endblock %}
