@@ -1,6 +1,7 @@
 from django import forms
+from django.utils import timezone
 
-from .models import FoodItem, PriceObservation
+from .models import ConsumptionEntry, FoodItem, PriceObservation
 
 
 class FoodItemForm(forms.ModelForm):
@@ -98,3 +99,80 @@ class PriceObservationForm(forms.ModelForm):
                 'Package unit must match this food item nutrition basis.'
             )
         return package_unit
+
+
+class ConsumptionEntryForm(forms.ModelForm):
+    consumed_at = forms.DateTimeField(
+        input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M',
+            attrs={'type': 'datetime-local'},
+        ),
+    )
+    unit = forms.ChoiceField(choices=FoodItem.BASIS_UNITS)
+    price_observation = forms.ModelChoiceField(
+        queryset=PriceObservation.objects.select_related('food_item'),
+        required=False,
+        empty_label='No price / unknown cost',
+    )
+    confirm_recalculation = forms.BooleanField(
+        required=False,
+        label='Confirm recalculation using current catalogue values',
+    )
+
+    class Meta:
+        model = ConsumptionEntry
+        fields = [
+            'food_item',
+            'quantity',
+            'unit',
+            'meal_category',
+            'consumed_at',
+            'price_observation',
+        ]
+        labels = {
+            'food_item': 'Food item',
+            'quantity': 'Consumed quantity',
+            'unit': 'Unit',
+            'meal_category': 'Meal category',
+            'consumed_at': 'Consumed date and time',
+            'price_observation': 'Price observation',
+        }
+        help_texts = {
+            'quantity': 'Use grams or millilitres according to the selected food item.',
+            'price_observation': 'One price is selected automatically; choose explicitly when several exist.',
+        }
+        widgets = {
+            'quantity': forms.NumberInput(attrs={'step': '0.001', 'min': '0.001'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk and self.instance.consumed_at:
+            local_time = timezone.localtime(self.instance.consumed_at)
+            self.initial['consumed_at'] = local_time.strftime('%Y-%m-%dT%H:%M')
+        elif not self.is_bound:
+            self.initial['consumed_at'] = timezone.localtime(
+                timezone.now(),
+            ).strftime('%Y-%m-%dT%H:%M')
+
+    def clean(self):
+        cleaned_data = super().clean()
+        food_item = cleaned_data.get('food_item')
+        unit = cleaned_data.get('unit')
+        price_observation = cleaned_data.get('price_observation')
+        if food_item and unit and unit != food_item.nutrition_basis_unit:
+            self.add_error('unit', 'Unit must match the selected food item nutrition basis.')
+        if food_item and price_observation:
+            if price_observation.food_item_id != food_item.pk:
+                self.add_error(
+                    'price_observation',
+                    'Price observation must belong to the selected food item.',
+                )
+        if food_item and not price_observation:
+            if food_item.price_observations.count() > 1:
+                self.add_error(
+                    'price_observation',
+                    'Select a price observation when multiple prices are available.',
+                )
+        return cleaned_data

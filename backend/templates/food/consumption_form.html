@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if is_edit %}Edit{% else %}Log{% endif %} Consumption | Food{% endblock %}
+
+{% block content %}
+  <section class="page-shell">
+    <h2>{% if is_edit %}Edit consumption entry{% else %}Log food or drink{% endif %}</h2>
+    <p class="muted">Nutrition and estimated cost are calculated from the selected catalogue values when the entry is created or deliberately recalculated.</p>
+
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <div class="form-grid">
+        {% for field in form %}
+          {% if field.name != 'confirm_recalculation' %}
+            <p>
+              {{ field.label_tag }}
+              {{ field }}
+              {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+              {{ field.errors }}
+            </p>
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      {% if is_edit %}
+        <p class="confirmation-field">
+          {{ form.confirm_recalculation }}
+          {{ form.confirm_recalculation.label_tag }}
+          <span class="helptext">Use this only when you intentionally want current catalogue values to replace the historical snapshot.</span>
+          {{ form.confirm_recalculation.errors }}
+        </p>
+      {% endif %}
+
+      <div class="actions">
+        {% if is_edit %}
+          <button type="submit" name="action" value="save" class="button">Save date/category</button>
+          <button type="submit" name="action" value="recalculate" class="button warning-button">Recalculate and save</button>
+          <a href="{% url 'food_history' %}" class="button secondary">Cancel</a>
+        {% else %}
+          <button type="submit" class="button">Save consumption</button>
+          <a href="{% url 'food_today' %}" class="button secondary">Cancel</a>
+        {% endif %}
+      </div>
+    </form>
+  </section>
+{% endblock %}

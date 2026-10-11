@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+
+{% block title %}Food History | Personal AI Homelab Platform{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <h1>Food History</h1>
+    <p>Review and correct recorded historical snapshots for a local reporting date.</p>
+    <div class="actions">
+      <a href="{% url 'consumption_create' %}" class="button">Log food or drink</a>
+      <a href="{% url 'food_today' %}?date={{ reporting_date|date:'Y-m-d' }}" class="button secondary">Today view</a>
+      <a href="{% url 'catalogue' %}" class="button secondary">Food catalogue</a>
+    </div>
+  </section>
+
+  <section class="page-shell">
+    <form method="get" class="date-picker">
+      <label for="history-date">Reporting date</label>
+      <input id="history-date" type="date" name="date" value="{{ reporting_date|date:'Y-m-d' }}" />
+      <button type="submit" class="button">Show date</button>
+    </form>
+
+    {% if entries %}
+      <div class="data-table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr><th>Time</th><th>Food</th><th>Quantity</th><th>Calories</th><th>Protein</th><th>Cost</th><th>Actions</th></tr>
+          </thead>
+          <tbody>
+            {% for entry in entries %}
+              <tr>
+                <td>{{ entry.consumed_at|date:'H:i' }}</td>
+                <td>{{ entry.source_name }}{% if entry.meal_category %}<br /><span class="muted">{{ entry.get_meal_category_display }}</span>{% endif %}</td>
+                <td>{{ entry.quantity }} {{ entry.unit }}</td>
+                <td>{{ entry.calories|default_if_none:'—' }}</td>
+                <td>{{ entry.protein|default_if_none:'—' }} g</td>
+                <td>{{ entry.estimated_cost|default_if_none:'—' }}{% if entry.estimated_cost %} {{ entry.currency }}{% endif %}</td>
+                <td>
+                  <div class="actions compact-actions">
+                    <a href="{% url 'consumption_edit' entry.pk %}">Edit</a>
+                    <form method="post" action="{% url 'consumption_delete' entry.pk %}">
+                      {% csrf_token %}
+                      <button type="submit" class="link-button danger-link" onclick="return confirm('Delete this consumption entry?');">Delete</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="empty-state">No consumption entries for this date.</p>
+    {% endif %}
+  </section>
+{% endblock %}

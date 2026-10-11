@@ -132,6 +132,25 @@
         color: #334155;
         border: 1px solid rgba(148, 163, 184, 0.5);
       }
+      button.button {
+        border: 0;
+        cursor: pointer;
+      }
+      .warning-button {
+        background: #fbbf24;
+        color: #422006;
+      }
+      .danger-link {
+        color: #fca5a5;
+      }
+      .link-button {
+        border: 0;
+        padding: 0;
+        background: transparent;
+        cursor: pointer;
+        font: inherit;
+        text-decoration: underline;
+      }
       .page-shell {
         background: rgba(15, 23, 42, 0.4);
         border: 1px solid var(--border);
@@ -208,6 +227,68 @@
         color: var(--muted);
         padding: 1rem 0;
       }
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 0.8rem;
+        margin: 1.25rem 0 2rem;
+      }
+      .summary-card {
+        display: grid;
+        gap: 0.35rem;
+        padding: 1rem;
+        border-radius: 12px;
+        background: rgba(248, 250, 252, 0.95);
+        color: #0f172a;
+      }
+      .summary-card span {
+        color: #475569;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+      }
+      .summary-card strong {
+        font-size: 1.15rem;
+      }
+      .warning {
+        border: 1px solid rgba(251, 191, 36, 0.45);
+        border-radius: 10px;
+        padding: 0.8rem 1rem;
+        background: rgba(251, 191, 36, 0.12);
+        color: #fef3c7;
+      }
+      .date-picker {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: 0.75rem;
+      }
+      .date-picker label {
+        display: grid;
+        gap: 0.35rem;
+        font-weight: 700;
+      }
+      .date-picker input {
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 0.65rem 0.75rem;
+        font: inherit;
+      }
+      .confirmation-field {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 1rem;
+      }
+      .confirmation-field label {
+        font-weight: 700;
+      }
+      .compact-actions {
+        align-items: center;
+        margin-top: 0;
+      }
+      .compact-actions form {
+        display: inline;
+      }
       @media (max-width: 640px) {
         .nav {
           flex-direction: column;
@@ -222,6 +303,10 @@
           display: block;
           overflow-x: auto;
         }
+        .date-picker {
+          align-items: stretch;
+          flex-direction: column;
+        }
       }
     </style>
   </head>
@@ -232,6 +317,7 @@
         <nav class="nav-links" aria-label="Main navigation">
           <a href="/">Home</a>
           <a href="/food/">Food</a>
+          <a href="{% url 'food_today' %}">Today</a>
         </nav>
       </div>
     </header>

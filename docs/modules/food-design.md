@@ -4,7 +4,7 @@
 > **Version:** 0.1.0
 > **Date:** 2026-10-11
 > **Design status:** Approved starting point; implementation not started
-> **Implementation status:** Phase 1 models/services and Phase 2 catalogue management implemented; consumption UI remains deferred
+> **Implementation status:** Phases 1-3 implemented; recipes, meal preparation, targets, and AI remain deferred
 >
 > This document records the agreed starting design from the Food module discovery interview. It should be updated as implementation and real-world use expose better decisions. It does not override the wider guidance in [docs/project-design.md](../project-design.md).
 
@@ -292,8 +292,8 @@ These questions must remain visible rather than being silently resolved during i
 - [x] Implement the initial FoodItem, PriceObservation, and ConsumptionEntry models with direct nutrition fields and historical snapshots.
 - [x] Implement reusable nutrition scaling, allocated cost, and daily aggregation services.
 - [x] Implement Phase 2 catalogue management, search, FoodItem forms, and price history.
-- [ ] Implement consumption entries and daily summaries.
-- [ ] Add quick logging, history, targets, and cost metrics.
+- [x] Implement consumption entries, snapshot application services, and daily summaries.
+- [x] Add quick logging, history, and estimated consumed-cost metrics. Daily targets remain deferred.
 - [ ] Add recipe and meal-prep batch workflows.
 - [ ] Add focused calculation and workflow tests.
 - [ ] Expose validated domain services for future AI tools.
@@ -316,9 +316,9 @@ Milestone ordering should be revisited if the meal-preparation prioritisation qu
 
 ## 15. Current implementation status
 
-**Implemented:** Phase 1 contains `FoodItem`, `PriceObservation`, and `ConsumptionEntry` models, the initial Food migration, reusable nutrition/cost/daily aggregation services, and focused automated tests. Phase 2 adds catalogue listing/search, FoodItem create/edit forms, nutrition validation, price observation create/edit forms, price history, and integration tests. The configured reporting timezone is `Europe/Dublin`.
+**Implemented:** Phase 1 contains `FoodItem`, `PriceObservation`, and `ConsumptionEntry` models, the initial Food migration, reusable nutrition/cost/daily aggregation services, and focused automated tests. Phase 2 adds catalogue listing/search, FoodItem create/edit forms, nutrition validation, price observation create/edit forms, price history, and integration tests. Phase 3 adds application services for consumption creation, metadata-only updates, explicit recalculation, and daily summaries, plus logging, Today, history, correction, deletion, and integration tests. The configured reporting timezone is `Europe/Dublin`.
 
-**Planned:** Consumption logging pages, Today and history views, richer daily summaries, recipes, meal-prep workflows, cost analysis UI, and AI tool integrations remain planned. Consumption snapshots are still not automatically created by a logging service because that belongs to Phase 3.
+**Planned:** Daily targets, recipes, meal-prep workflows, advanced cost analysis, and AI tool integrations remain planned. Serving/density conversions and external data sources are also deferred.
 
 This status should be updated as milestones are completed. Planned requirements must not be described as implemented until they exist in working code and have been tested.
 
@@ -329,3 +329,4 @@ This status should be updated as milestones are completed. Planned requirements 
 | 0.1.0 | 2026-10-11 | Recorded the approved starting design from the Food module discovery interview. |
 | 0.2.0 | 2026-10-11 | Recorded implementation of Phase 1 models, migration, calculation services, Europe/Dublin timezone, and automated tests. |
 | 0.3.0 | 2026-10-11 | Recorded Phase 2 catalogue management, search, forms, price history, and integration tests. |
+| 0.4.0 | 2026-10-11 | Recorded Phase 3 consumption services, snapshot creation/recalculation, Today/history pages, deletion, timezone aggregation, and tests. |

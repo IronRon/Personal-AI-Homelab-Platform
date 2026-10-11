@@ -6,12 +6,19 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from .forms import FoodItemForm, PriceObservationForm
+from .forms import ConsumptionEntryForm, FoodItemForm, PriceObservationForm
 from .models import ConsumptionEntry, FoodItem, PriceObservation
 from .services.calculations import (
     aggregate_daily,
     calculate_allocated_cost,
     scale_nutrition,
+)
+from .services.consumption import (
+    create_consumption_entry,
+    get_consumption_entries_for_date,
+    get_daily_summary,
+    recalculate_consumption_entry,
+    update_consumption_entry,
 )
 
 
@@ -389,3 +396,283 @@ class CatalogueWorkflowTests(TestCase):
         price.refresh_from_db()
         self.assertEqual(price.paid_price, Decimal('2.25'))
         self.assertEqual(price.source, 'updated shop')
+
+
+class ConsumptionWorkflowTests(TestCase):
+    def setUp(self):
+        self.food_item = FoodItem.objects.create(
+            name='Oats',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+            calories_per_100=Decimal('380'),
+            protein_per_100=Decimal('13.20'),
+            carbohydrates_per_100=Decimal('67.00'),
+            fat_per_100=Decimal('6.50'),
+            nutrition_source='label',
+        )
+        self.price = PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('2.50'),
+            currency='EUR',
+            source='shop',
+        )
+
+    def test_create_service_populates_historical_snapshots(self):
+        entry = create_consumption_entry(
+            food_item=self.food_item,
+            quantity=Decimal('250'),
+            unit=FoodItem.GRAMS,
+            price_observation=self.price,
+            meal_category='breakfast',
+        )
+
+        self.assertEqual(entry.source_name, 'Oats')
+        self.assertEqual(entry.calories, Decimal('950.00'))
+        self.assertEqual(entry.protein, Decimal('33.00'))
+        self.assertEqual(entry.carbohydrates, Decimal('167.50'))
+        self.assertEqual(entry.fat, Decimal('16.25'))
+        self.assertEqual(entry.estimated_cost, Decimal('0.63'))
+        self.assertEqual(entry.currency, 'EUR')
+        self.assertEqual(entry.nutrition_source, 'label')
+        self.assertEqual(entry.cost_source, 'shop')
+
+    def test_create_service_auto_selects_the_only_price(self):
+        entry = create_consumption_entry(
+            food_item=self.food_item,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+        )
+
+        self.assertEqual(entry.price_observation, self.price)
+        self.assertEqual(entry.estimated_cost, Decimal('0.25'))
+
+    def test_create_service_requires_selection_when_multiple_prices_exist(self):
+        second_price = PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('3.00'),
+            currency='EUR',
+            source='another shop',
+        )
+
+        with self.assertRaisesMessage(ValueError, 'Select a price observation'):
+            create_consumption_entry(
+                food_item=self.food_item,
+                quantity=Decimal('100'),
+                unit=FoodItem.GRAMS,
+            )
+
+        entry = create_consumption_entry(
+            food_item=self.food_item,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            price_observation=second_price,
+        )
+        self.assertEqual(entry.price_observation, second_price)
+        self.assertEqual(entry.estimated_cost, Decimal('0.30'))
+
+    def test_create_service_preserves_unknown_nutrition_and_cost(self):
+        self.food_item.calories_per_100 = None
+        self.food_item.protein_per_100 = None
+        self.food_item.carbohydrates_per_100 = None
+        self.food_item.fat_per_100 = None
+        self.food_item.save()
+        self.price.delete()
+
+        entry = create_consumption_entry(
+            food_item=self.food_item,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+        )
+
+        self.assertIsNone(entry.calories)
+        self.assertIsNone(entry.protein)
+        self.assertIsNone(entry.estimated_cost)
+
+    def test_create_service_rejects_invalid_quantity_and_unit(self):
+        with self.assertRaises(ValueError):
+            create_consumption_entry(
+                food_item=self.food_item,
+                quantity=Decimal('0'),
+                unit=FoodItem.GRAMS,
+                price_observation=self.price,
+            )
+        with self.assertRaises(ValueError):
+            create_consumption_entry(
+                food_item=self.food_item,
+                quantity=Decimal('100'),
+                unit=FoodItem.MILLILITRES,
+                price_observation=self.price,
+            )
+
+    def test_catalogue_changes_do_not_change_snapshot(self):
+        entry = create_consumption_entry(
+            food_item=self.food_item,
+            quantity=Decimal('250'),
+            unit=FoodItem.GRAMS,
+            price_observation=self.price,
+        )
+        self.food_item.protein_per_100 = Decimal('20.00')
+        self.food_item.save()
+        self.price.paid_price = Decimal('4.00')
+        self.price.save()
+        entry.refresh_from_db()
+
+        self.assertEqual(entry.protein, Decimal('33.00'))
+        self.assertEqual(entry.estimated_cost, Decimal('0.63'))
+
+    def test_metadata_update_does_not_recalculate_snapshots(self):
+        entry = create_consumption_entry(
+            food_item=self.food_item,
+            quantity=Decimal('250'),
+            unit=FoodItem.GRAMS,
+            price_observation=self.price,
+        )
+        original_calories = entry.calories
+        original_cost = entry.estimated_cost
+        consumed_at = timezone.make_aware(
+            datetime(2026, 10, 12, 8, 30),
+            timezone.get_current_timezone(),
+        )
+
+        update_consumption_entry(
+            entry,
+            consumed_at=consumed_at,
+            meal_category='breakfast',
+        )
+        entry.refresh_from_db()
+
+        self.assertEqual(entry.consumed_at, consumed_at)
+        self.assertEqual(entry.meal_category, 'breakfast')
+        self.assertEqual(entry.calories, original_calories)
+        self.assertEqual(entry.estimated_cost, original_cost)
+
+    def test_source_update_requires_explicit_recalculation(self):
+        entry = create_consumption_entry(
+            food_item=self.food_item,
+            quantity=Decimal('250'),
+            unit=FoodItem.GRAMS,
+            price_observation=self.price,
+        )
+
+        with self.assertRaisesMessage(ValueError, 'requires explicit recalculation'):
+            update_consumption_entry(entry, quantity=Decimal('300'))
+
+    def test_recalculation_requires_confirmation_and_refreshes_snapshots(self):
+        entry = create_consumption_entry(
+            food_item=self.food_item,
+            quantity=Decimal('250'),
+            unit=FoodItem.GRAMS,
+            price_observation=self.price,
+        )
+        self.food_item.protein_per_100 = Decimal('20.00')
+        self.food_item.save()
+
+        with self.assertRaisesMessage(ValueError, 'confirmation'):
+            recalculate_consumption_entry(entry, confirmed=False)
+
+        recalculate_consumption_entry(
+            entry,
+            quantity=Decimal('300'),
+            confirmed=True,
+        )
+        entry.refresh_from_db()
+
+        self.assertEqual(entry.quantity, Decimal('300.000'))
+        self.assertEqual(entry.protein, Decimal('60.00'))
+        self.assertEqual(entry.estimated_cost, Decimal('0.75'))
+
+    def test_daily_summary_and_local_date_entries(self):
+        dublin = timezone.get_current_timezone()
+        first = create_consumption_entry(
+            food_item=self.food_item,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            consumed_at=timezone.make_aware(datetime(2026, 10, 11, 23, 30), dublin),
+            price_observation=self.price,
+        )
+        create_consumption_entry(
+            food_item=self.food_item,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            consumed_at=timezone.make_aware(datetime(2026, 10, 12, 0, 30), dublin),
+            price_observation=self.price,
+        )
+
+        entries = get_consumption_entries_for_date(first.consumed_at.date())
+        summary = get_daily_summary(first.consumed_at.date())
+
+        self.assertEqual(entries.count(), 1)
+        self.assertEqual(summary.entry_count, 1)
+        self.assertEqual(summary.calories, Decimal('380.00'))
+        self.assertEqual(summary.estimated_cost, Decimal('0.25'))
+
+    def test_consumption_form_validates_unit_and_multiple_price_selection(self):
+        PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('3.00'),
+            currency='EUR',
+            source='another shop',
+        )
+        form = ConsumptionEntryForm(data={
+            'food_item': self.food_item.pk,
+            'quantity': '100',
+            'unit': FoodItem.MILLILITRES,
+            'meal_category': 'breakfast',
+            'consumed_at': '2026-10-11T08:00',
+            'price_observation': '',
+            'confirm_recalculation': '',
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('unit', form.errors)
+        self.assertIn('price_observation', form.errors)
+
+    def test_consumption_routes_and_views(self):
+        self.assertEqual(self.client.get(reverse('food_today')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('consumption_create')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('food_history')).status_code, 200)
+        response = self.client.post(reverse('consumption_create'), {
+            'food_item': self.food_item.pk,
+            'quantity': '250',
+            'unit': FoodItem.GRAMS,
+            'meal_category': 'breakfast',
+            'consumed_at': '2026-10-11T08:00',
+            'price_observation': self.price.pk,
+            'confirm_recalculation': '',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        entry = ConsumptionEntry.objects.get()
+        today = self.client.get(reverse('food_today'), {'date': '2026-10-11'})
+        self.assertContains(today, '950.00')
+        self.assertContains(today, '33.00')
+        history = self.client.get(reverse('food_history'), {'date': '2026-10-11'})
+        self.assertContains(history, 'Oats')
+        self.assertContains(history, '0.63')
+
+        edit = self.client.post(reverse('consumption_edit', kwargs={'pk': entry.pk}), {
+            'food_item': self.food_item.pk,
+            'quantity': '250',
+            'unit': FoodItem.GRAMS,
+            'meal_category': 'lunch',
+            'consumed_at': '2026-10-11T09:00',
+            'price_observation': self.price.pk,
+            'confirm_recalculation': '',
+            'action': 'save',
+        })
+        self.assertEqual(edit.status_code, 302)
+        entry.refresh_from_db()
+        self.assertEqual(entry.meal_category, 'lunch')
+        self.assertEqual(entry.calories, Decimal('950.00'))
+
+        delete_get = self.client.get(reverse('consumption_delete', kwargs={'pk': entry.pk}))
+        self.assertEqual(delete_get.status_code, 405)
+        delete_post = self.client.post(reverse('consumption_delete', kwargs={'pk': entry.pk}))
+        self.assertEqual(delete_post.status_code, 302)
+        self.assertFalse(ConsumptionEntry.objects.filter(pk=entry.pk).exists())

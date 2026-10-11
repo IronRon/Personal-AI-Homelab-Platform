@@ -28,6 +28,10 @@ class DailyTotals:
     nutrition_complete: bool
     cost_complete: bool
     entry_count: int
+    calories_complete: bool
+    protein_complete: bool
+    carbohydrates_complete: bool
+    fat_complete: bool
 
 
 def _quantize(value: Decimal, quantum: Decimal) -> Decimal:
@@ -98,6 +102,10 @@ def _sum_known(values: list[Optional[Decimal]]) -> Decimal:
     )
 
 
+def _all_known(values: list[Optional[Decimal]]) -> bool:
+    return all(value is not None for value in values)
+
+
 def aggregate_daily(entries: Iterable, target_date: date, tz=None) -> DailyTotals:
     """Aggregate entries whose aware timestamp falls on target_date in tz."""
     tz = tz or timezone.get_current_timezone()
@@ -126,11 +134,11 @@ def aggregate_daily(entries: Iterable, target_date: date, tz=None) -> DailyTotal
             sum((cost for cost in costs if cost is not None), Decimal('0')),
             MONEY_QUANTUM,
         ),
-        nutrition_complete=all(
-            value is not None
-            for values in nutrition_values.values()
-            for value in values
-        ),
+        nutrition_complete=all(_all_known(values) for values in nutrition_values.values()),
         cost_complete=all(cost is not None for cost in costs),
         entry_count=len(matching_entries),
+        calories_complete=_all_known(nutrition_values['calories']),
+        protein_complete=_all_known(nutrition_values['protein']),
+        carbohydrates_complete=_all_known(nutrition_values['carbohydrates']),
+        fat_complete=_all_known(nutrition_values['fat']),
     )

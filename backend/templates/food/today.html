@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+
+{% block title %}Food Today | Personal AI Homelab Platform{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <h1>Food Today</h1>
+    <p>Consumption totals for the selected local reporting date.</p>
+    <div class="actions">
+      <a href="{% url 'consumption_create' %}" class="button">Log food or drink</a>
+      <a href="{% url 'catalogue' %}" class="button secondary">Food catalogue</a>
+      <a href="{% url 'food_history' %}?date={{ reporting_date|date:'Y-m-d' }}" class="button secondary">History</a>
+    </div>
+  </section>
+
+  <section class="page-shell">
+    <form method="get" class="date-picker">
+      <label for="today-date">Reporting date</label>
+      <input id="today-date" type="date" name="date" value="{{ reporting_date|date:'Y-m-d' }}" />
+      <button type="submit" class="button">Show date</button>
+    </form>
+
+    {% if not summary.nutrition_complete or not summary.cost_complete %}
+      <p class="warning" role="status">
+        Some entries have unknown nutrition or cost. Unknown values are marked as incomplete and are not treated as zero.
+      </p>
+    {% endif %}
+
+    <div class="summary-grid" aria-label="Daily nutrition summary">
+      <article class="summary-card"><span>Calories</span><strong>{% if summary.calories_complete %}{{ summary.calories }} kcal{% else %}Incomplete{% endif %}</strong></article>
+      <article class="summary-card"><span>Protein</span><strong>{% if summary.protein_complete %}{{ summary.protein }} g{% else %}Incomplete{% endif %}</strong></article>
+      <article class="summary-card"><span>Carbohydrates</span><strong>{% if summary.carbohydrates_complete %}{{ summary.carbohydrates }} g{% else %}Incomplete{% endif %}</strong></article>
+      <article class="summary-card"><span>Fat</span><strong>{% if summary.fat_complete %}{{ summary.fat }} g{% else %}Incomplete{% endif %}</strong></article>
+      <article class="summary-card"><span>Estimated consumed cost</span><strong>{% if summary.cost_complete %}{{ summary.estimated_cost }} EUR{% else %}Incomplete{% endif %}</strong></article>
+    </div>
+
+    <h2>Consumed entries</h2>
+    {% if entries %}
+      <div class="data-table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr><th>Time</th><th>Food</th><th>Quantity</th><th>Nutrition snapshot</th><th>Cost</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for entry in entries %}
+              <tr>
+                <td>{{ entry.consumed_at|date:'H:i' }}{% if entry.meal_category %}<br /><span class="muted">{{ entry.get_meal_category_display }}</span>{% endif %}</td>
+                <td>{{ entry.source_name }}</td>
+                <td>{{ entry.quantity }} {{ entry.unit }}</td>
+                <td>{{ entry.calories|default_if_none:'—' }} kcal<br />{{ entry.protein|default_if_none:'—' }} g protein</td>
+                <td>{{ entry.estimated_cost|default_if_none:'—' }}{% if entry.estimated_cost %} {{ entry.currency }}{% endif %}</td>
+                <td><a href="{% url 'consumption_edit' entry.pk %}">Edit</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="empty-state">No consumption entries for this date.</p>
+    {% endif %}
+  </section>
+{% endblock %}

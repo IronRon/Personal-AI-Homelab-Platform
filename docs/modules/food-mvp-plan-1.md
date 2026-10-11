@@ -40,6 +40,8 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 14. Add `backend/templates/food/today.html`, `food/consumption_form.html`, and `food/history.html` or similarly focused templates. Show incomplete-data warnings and distinguish estimated consumed cost from grocery expenditure.
 15. Add integration tests for logging, snapshot stability after catalogue edits, edit/delete behavior, invalid units/quantities, missing nutrition/price handling, local timezone/date assignment, and Today totals for calories/protein/carbohydrates/fat/cost.
 
+**Phase 3 status: Implemented.** Consumption application services now create snapshots through `calculate_consumption`, preserve metadata-only edits, require explicit confirmation for catalogue-based recalculation, apply the approved multiple-price selection rule, and provide timezone-aware daily summaries. Logging, Today, history, correction, and POST-only deletion pages are implemented and tested. Daily targets, recipes, meal preparation, and AI remain deferred.
+
 ### Phase 4: Verification and documentation
 16. Run the focused Food tests, `python manage.py check`, migrations/migration checks, and the full Django test suite. Start the local server and manually verify catalogue creation, logging, Today, history correction, and deletion in a desktop and narrow/mobile viewport.
 17. Review the diff for scope expansion, security issues, direct view calculations, accidental grocery-spend claims, and regressions to `/` and `/food/`.
@@ -73,6 +75,7 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 
 **Open questions / pre-implementation checks**
 - The reporting timezone is resolved as `Europe/Dublin` for this milestone.
+- Price selection is resolved: one observation is auto-selected, multiple observations require explicit selection, and no observations leave estimated cost unknown.
 - Whether basic meal preparation should be moved earlier remains deferred and does not affect this slice unless the user changes milestone order.
 - Grocery purchase expenditure versus allocated consumed cost remains explicitly outside this milestone; only estimated consumed cost is calculated.
 - Density, serving-size conversions, count units, and household measures remain deferred; g/ml basis matching is the first-slice rule.
