@@ -3,9 +3,11 @@
 {% block title %}{% if is_edit %}Edit{% else %}Log{% endif %} Consumption | Food{% endblock %}
 
 {% block content %}
+  {% include 'food/_navigation.html' %}
   <section class="page-shell">
     <h2>{% if is_edit %}Edit consumption entry{% else %}Log food or drink{% endif %}</h2>
-    <p class="muted">Nutrition and estimated cost are calculated from the selected catalogue values when the entry is created or deliberately recalculated.</p>
+    <p class="muted">Nutrition and estimated cost are calculated from the selected catalogue values when the entry is created or deliberately recalculated. Use grams for solid foods and millilitres for liquids; serving and density conversions are not available yet.</p>
+    <p class="info-box"><strong>Outside meals:</strong> create a Product for a canteen, restaurant, takeaway, or ready meal. Estimated nutrition is allowed, and cost remains unknown when no suitable price observation is selected.</p>
 
     <form method="post">
       {% csrf_token %}

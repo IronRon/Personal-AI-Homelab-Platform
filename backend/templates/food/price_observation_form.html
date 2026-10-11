@@ -3,9 +3,11 @@
 {% block title %}{% if is_edit %}Edit{% else %}Add{% endif %} Price | {{ food_item }}{% endblock %}
 
 {% block content %}
+  {% include 'food/_navigation.html' %}
   <section class="page-shell">
     <h2>{% if is_edit %}Edit{% else %}Add{% endif %} price observation</h2>
     <p class="muted">Food item: {{ food_item }}. Package units must match the nutrition basis: {{ food_item.nutrition_basis_unit }}.</p>
+    <p class="info-box"><strong>Price guidance:</strong> Actual paid price is what you paid for this package. Reference price is optional and helps compare discounts. A price observation estimates the cost allocated to consumed food; it is not a grocery expenditure record.</p>
 
     <form method="post">
       {% csrf_token %}

@@ -3,9 +3,10 @@
 {% block title %}Food Today | Personal AI Homelab Platform{% endblock %}
 
 {% block content %}
+  {% include 'food/_navigation.html' %}
   <section class="hero">
     <h1>Food Today</h1>
-    <p>Consumption totals for the selected local reporting date.</p>
+    <p>Consumption totals for the selected local reporting date. Estimated consumed cost is separate from money spent buying groceries.</p>
     <div class="actions">
       <a href="{% url 'consumption_create' %}" class="button">Log food or drink</a>
       <a href="{% url 'catalogue' %}" class="button secondary">Food catalogue</a>
@@ -56,7 +57,7 @@
         </table>
       </div>
     {% else %}
-      <p class="empty-state">No consumption entries for this date.</p>
+      <p class="empty-state">No food has been logged for this date yet. Start with <a href="{% url 'consumption_create' %}">Log Food</a>, or add an item to the <a href="{% url 'catalogue' %}">Food Catalogue</a> first.</p>
     {% endif %}
   </section>
 {% endblock %}

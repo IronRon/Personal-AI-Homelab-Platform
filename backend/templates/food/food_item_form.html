@@ -3,9 +3,10 @@
 {% block title %}{% if is_edit %}Edit{% else %}Add{% endif %} Food Item | Personal AI Homelab Platform{% endblock %}
 
 {% block content %}
+  {% include 'food/_navigation.html' %}
   <section class="page-shell">
     <h2>{% if is_edit %}Edit food item{% else %}Add food item{% endif %}</h2>
-    <p class="muted">Leave nutrition fields blank when values are unknown. Blank values are not treated as zero.</p>
+    <p class="muted">Use Ingredient for a generic food type. Use Product for a branded, canteen, restaurant, takeaway, or ready-to-eat item. Leave nutrition fields blank when values are unknown; blank values are not treated as zero.</p>
 
     <form method="post">
       {% csrf_token %}

@@ -3,9 +3,10 @@
 {% block title %}Food History | Personal AI Homelab Platform{% endblock %}
 
 {% block content %}
+  {% include 'food/_navigation.html' %}
   <section class="hero">
     <h1>Food History</h1>
-    <p>Review and correct recorded historical snapshots for a local reporting date.</p>
+    <p>Review and correct recorded historical snapshots for a local reporting date. Date and meal-category edits preserve snapshots; changing the food, quantity, unit, or price requires deliberate recalculation.</p>
     <div class="actions">
       <a href="{% url 'consumption_create' %}" class="button">Log food or drink</a>
       <a href="{% url 'food_today' %}?date={{ reporting_date|date:'Y-m-d' }}" class="button secondary">Today view</a>

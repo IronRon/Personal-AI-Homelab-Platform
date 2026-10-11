@@ -1,4 +1,5 @@
 from django.shortcuts import render
+from django.urls import reverse
 
 
 def home(request):
@@ -6,7 +7,7 @@ def home(request):
         {
             'name': 'Food',
             'description': 'Recipes, nutrition, shopping, and meal prep.',
-            'link': '/food/',
+            'link': reverse('food_today'),
             'coming_soon': False,
         },
         {

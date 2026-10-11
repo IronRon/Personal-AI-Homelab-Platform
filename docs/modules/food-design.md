@@ -4,7 +4,7 @@
 > **Version:** 0.1.0
 > **Date:** 2026-10-11
 > **Design status:** Approved starting point; implementation not started
-> **Implementation status:** Phases 1-3 implemented; recipes, meal preparation, targets, and AI remain deferred
+> **Implementation status:** Phases 1-4 implemented; recipes, meal preparation, targets, and AI remain deferred
 >
 > This document records the agreed starting design from the Food module discovery interview. It should be updated as implementation and real-world use expose better decisions. It does not override the wider guidance in [docs/project-design.md](../project-design.md).
 
@@ -199,6 +199,17 @@ Recipes and meal-prep screens are the next vertical slice unless the open priori
 
 The UI should be mobile-friendly and should support common actions through normal forms and buttons without requiring chat.
 
+### 7.1 Phase 4 navigation and guidance decisions
+
+- Food Today is the Food module landing page at `/food/`.
+- The central dashboard opens Food Today through the named `food_today` route.
+- Food-specific navigation provides Today, Log Food, Food Catalogue, and Consumption History on every Food page.
+- The global navigation remains focused on the Homelab platform and Food module entry point rather than exposing every Food page.
+- Food guidance distinguishes generic ingredients from specific products. Products include branded supermarket items, workplace canteen meals, restaurant meals, takeaways, and ready meals.
+- Product nutrition and cost may be estimated, with unknown values preserved and labelled rather than converted to zero.
+- The current grams/millilitres restriction remains intentional. Complete meals with unknown weight require an estimate; serving, count, density, and portion conversions remain future work.
+- Estimated consumed-food cost is explained separately from actual grocery expenditure.
+
 ## 8. Future AI integration
 
 AI is excluded from the initial Food release, but the domain should be designed for future read and write tools.
@@ -316,9 +327,9 @@ Milestone ordering should be revisited if the meal-preparation prioritisation qu
 
 ## 15. Current implementation status
 
-**Implemented:** Phase 1 contains `FoodItem`, `PriceObservation`, and `ConsumptionEntry` models, the initial Food migration, reusable nutrition/cost/daily aggregation services, and focused automated tests. Phase 2 adds catalogue listing/search, FoodItem create/edit forms, nutrition validation, price observation create/edit forms, price history, and integration tests. Phase 3 adds application services for consumption creation, metadata-only updates, explicit recalculation, and daily summaries, plus logging, Today, history, correction, deletion, and integration tests. The configured reporting timezone is `Europe/Dublin`.
+**Implemented:** Phase 1 contains `FoodItem`, `PriceObservation`, and `ConsumptionEntry` models, the initial Food migration, reusable nutrition/cost/daily aggregation services, and focused automated tests. Phase 2 adds catalogue listing/search, FoodItem create/edit forms, nutrition validation, price observation create/edit forms, price history, and integration tests. Phase 3 adds application services for consumption creation, metadata-only updates, explicit recalculation, and daily summaries, plus logging, Today, history, correction, deletion, and integration tests. Phase 4 improves Food navigation, contextual guidance, empty states, mobile-oriented shared styling, outside-meal terminology, and regression coverage. The configured reporting timezone is `Europe/Dublin`.
 
-**Planned:** Daily targets, recipes, meal-prep workflows, advanced cost analysis, and AI tool integrations remain planned. Serving/density conversions and external data sources are also deferred.
+**Planned:** Daily targets, recipes, meal-prep workflows, advanced cost analysis, and AI tool integrations remain planned. Serving/density conversions, count/portion units, and external data sources are also deferred.
 
 This status should be updated as milestones are completed. Planned requirements must not be described as implemented until they exist in working code and have been tested.
 
@@ -330,3 +341,4 @@ This status should be updated as milestones are completed. Planned requirements 
 | 0.2.0 | 2026-10-11 | Recorded implementation of Phase 1 models, migration, calculation services, Europe/Dublin timezone, and automated tests. |
 | 0.3.0 | 2026-10-11 | Recorded Phase 2 catalogue management, search, forms, price history, and integration tests. |
 | 0.4.0 | 2026-10-11 | Recorded Phase 3 consumption services, snapshot creation/recalculation, Today/history pages, deletion, timezone aggregation, and tests. |
+| 0.5.0 | 2026-10-11 | Recorded Phase 4 navigation, user guidance, outside-meal terminology, responsive UI improvements, and verification. |

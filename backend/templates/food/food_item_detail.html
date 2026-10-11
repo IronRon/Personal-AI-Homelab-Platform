@@ -3,10 +3,12 @@
 {% block title %}{{ food_item }} | Food Catalogue{% endblock %}
 
 {% block content %}
+  {% include 'food/_navigation.html' %}
   <section class="page-shell">
     <span class="pill">{{ food_item.get_item_type_display }}</span>
     <h2>{{ food_item }}</h2>
     {% if food_item.nutrition_source %}<p class="muted">Nutrition source: {{ food_item.nutrition_source }}</p>{% endif %}
+    <p class="info-box"><strong>Historical data:</strong> catalogue values apply to future consumption entries. Existing entries keep their recorded nutrition and estimated cost snapshots.</p>
 
     <table class="data-table">
       <caption class="muted">Nutrition per 100 {{ food_item.nutrition_basis_unit }}</caption>

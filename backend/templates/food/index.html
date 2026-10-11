@@ -3,6 +3,7 @@
 {% block title %}Food Catalogue | Personal AI Homelab Platform{% endblock %}
 
 {% block content %}
+  {% include 'food/_navigation.html' %}
   <section class="hero">
     <h1>Food Catalogue</h1>
     <p>Reusable ingredients and products with nutrition information and price history.</p>
@@ -12,6 +13,7 @@
   </section>
 
   <section class="page-shell">
+    <p class="info-box"><strong>Catalogue basics:</strong> An ingredient is a generic food type, such as chicken breast, basmati rice, potatoes, or eggs. A product is a specific branded or purchased offering, such as a supermarket ready meal, workplace canteen meal, restaurant meal, or takeaway. Product nutrition and price may be estimated when exact information is unavailable.</p>
     <form method="get" role="search">
       <p>
         <label for="catalogue-search">Search by name or brand</label>

@@ -30,6 +30,9 @@ class FoodItemForm(forms.ModelForm):
             'nutrition_source': 'Nutrition source',
         }
         help_texts = {
+            'name': 'Use a clear name, such as Chicken breast, Lidl ready meal, or Workplace canteen curry.',
+            'item_type': 'Ingredient is generic; Product is a specific branded, canteen, restaurant, takeaway, or ready-to-eat item.',
+            'brand': 'Optional for a product. You can use a seller, workplace canteen, restaurant, or takeaway name.',
             'nutrition_basis_unit': 'Choose grams or millilitres. Consumption and package units must match.',
             'calories_per_100': 'Leave blank when the value is unknown. Blank is not treated as zero.',
             'protein_per_100': 'Leave blank when the value is unknown. Blank is not treated as zero.',
@@ -78,6 +81,7 @@ class PriceObservationForm(forms.ModelForm):
             'package_quantity': 'Must use the same unit as the food item nutrition basis.',
             'paid_price': 'This is the actual price paid and is used for estimated consumption cost.',
             'reference_price': 'Optional normal or reference price for comparison.',
+            'observed_at': 'When this price was seen or paid.',
             'source': 'For example: supermarket, receipt, or manual observation.',
         }
         widgets = {
@@ -139,7 +143,9 @@ class ConsumptionEntryForm(forms.ModelForm):
             'price_observation': 'Price observation',
         }
         help_texts = {
-            'quantity': 'Use grams or millilitres according to the selected food item.',
+            'quantity': 'Enter the amount consumed in grams or millilitres according to the selected food item. A complete meal with unknown weight may need an estimate.',
+            'meal_category': 'Optional context such as breakfast, lunch, dinner, or snack.',
+            'consumed_at': 'Defaults to the current Europe/Dublin local time.',
             'price_observation': 'One price is selected automatically; choose explicitly when several exist.',
         }
         widgets = {

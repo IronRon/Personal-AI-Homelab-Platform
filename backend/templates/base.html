@@ -58,6 +58,26 @@
       .nav-links a:hover {
         color: var(--text);
       }
+      .food-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        margin: 0 0 1.5rem;
+        padding: 0.45rem;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(17, 24, 39, 0.7);
+      }
+      .food-nav a {
+        padding: 0.55rem 0.75rem;
+        border-radius: 8px;
+        color: var(--muted);
+      }
+      .food-nav a:hover,
+      .food-nav a:focus-visible {
+        background: rgba(56, 189, 248, 0.14);
+        color: var(--text);
+      }
       .content {
         padding: 2rem 0 4rem;
       }
@@ -289,6 +309,16 @@
       .compact-actions form {
         display: inline;
       }
+      .info-box {
+        border-left: 3px solid var(--accent);
+        padding: 0.75rem 1rem;
+        background: rgba(56, 189, 248, 0.08);
+        color: #cbd5e1;
+        line-height: 1.5;
+      }
+      .info-box strong {
+        color: var(--text);
+      }
       @media (max-width: 640px) {
         .nav {
           flex-direction: column;
@@ -307,6 +337,13 @@
           align-items: stretch;
           flex-direction: column;
         }
+        .food-nav {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .food-nav a {
+          text-align: center;
+        }
       }
     </style>
   </head>
@@ -316,8 +353,7 @@
         <a href="/" class="brand">Personal AI Homelab Platform</a>
         <nav class="nav-links" aria-label="Main navigation">
           <a href="/">Home</a>
-          <a href="/food/">Food</a>
-          <a href="{% url 'food_today' %}">Today</a>
+          <a href="{% url 'food_today' %}">Food</a>
         </nav>
       </div>
     </header>

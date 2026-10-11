@@ -288,6 +288,22 @@ class CatalogueWorkflowTests(TestCase):
         self.assertContains(response, 'Ingredient')
         self.assertContains(response, '13.20')
 
+    def test_food_pages_share_module_navigation(self):
+        response = self.client.get(reverse('catalogue'))
+
+        self.assertContains(response, 'Food Catalogue')
+        self.assertContains(response, reverse('food_today'))
+        self.assertContains(response, reverse('consumption_create'))
+        self.assertContains(response, reverse('food_history'))
+
+    def test_forms_explain_food_types_and_unknown_values(self):
+        food_form = FoodItemForm()
+        consumption_form = ConsumptionEntryForm()
+
+        self.assertIn('Ingredient is generic', food_form.fields['item_type'].help_text)
+        self.assertIn('Leave blank when the value is unknown', food_form.fields['protein_per_100'].help_text)
+        self.assertIn('grams or millilitres', consumption_form.fields['quantity'].help_text)
+
     def test_catalogue_search_matches_name_or_brand(self):
         FoodItem.objects.create(
             name='Milk',
