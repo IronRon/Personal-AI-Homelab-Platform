@@ -1,0 +1,100 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.coverage
+.coverage.*
+htmlcov/
+.pytype/
+
+# Virtual environments and local Python tooling
+.venv/
+venv/
+env/
+ENV/
+.python-version
+pip-wheel-metadata/
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Django and local application data
+*.log
+db.sqlite3
+db.sqlite3-journal
+local_settings.py
+media/
+staticfiles/
+
+# Environment files and local secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Node.js and frontend tooling
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.parcel-cache/
+.vite/
+.next/
+out/
+.nuxt/
+.cache/
+
+# Generated project data and heavy media artifacts
+data/
+exports/
+artifacts/
+workspaces/
+uploads/
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.wav
+*.flac
+*.psd
+
+# Docker and local infrastructure overrides
+docker-compose.override.yml
+*.local.yml
+*.local.yaml
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors and IDEs
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Test and coverage output
+.pytest_cache/
+.tox/
+.nox/
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+tmp/
