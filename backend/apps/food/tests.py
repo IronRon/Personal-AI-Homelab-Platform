@@ -2,15 +2,27 @@ from datetime import datetime
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
+from django.db.models.deletion import ProtectedError
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from .forms import ConsumptionEntryForm, FoodItemForm, PriceObservationForm
-from .models import ConsumptionEntry, FoodItem, PriceObservation
+from .models import (
+    BatchIngredient,
+    ConsumptionEntry,
+    FoodItem,
+    MealPrepBatch,
+    PriceObservation,
+    Recipe,
+    RecipeIngredient,
+)
 from .services.calculations import (
     aggregate_daily,
     calculate_allocated_cost,
+    calculate_batch_totals,
+    calculate_recipe_estimate,
     scale_nutrition,
 )
 from .services.consumption import (
@@ -20,6 +32,7 @@ from .services.consumption import (
     recalculate_consumption_entry,
     update_consumption_entry,
 )
+from .services.meal_prep import BatchIngredientInput, create_meal_prep_batch
 
 
 class FoodModelTests(TestCase):
@@ -692,3 +705,643 @@ class ConsumptionWorkflowTests(TestCase):
         delete_post = self.client.post(reverse('consumption_delete', kwargs={'pk': entry.pk}))
         self.assertEqual(delete_post.status_code, 302)
         self.assertFalse(ConsumptionEntry.objects.filter(pk=entry.pk).exists())
+
+
+class RecipeAndMealPrepModelTests(TestCase):
+    def setUp(self):
+        self.oats = FoodItem.objects.create(
+            name='Oats',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+            calories_per_100=Decimal('380'),
+            protein_per_100=Decimal('13.20'),
+            carbohydrates_per_100=Decimal('67.00'),
+            fat_per_100=Decimal('6.50'),
+            nutrition_source='label',
+        )
+        self.price = PriceObservation.objects.create(
+            food_item=self.oats,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('2.50'),
+            currency='EUR',
+            source='shop label',
+        )
+        self.recipe = Recipe.objects.create(name='Overnight oats')
+
+    def test_recipe_ingredient_requires_positive_quantity_and_matching_unit(self):
+        ingredient = RecipeIngredient(
+            recipe=self.recipe,
+            food_item=self.oats,
+            quantity=Decimal('0'),
+            unit=FoodItem.MILLILITRES,
+        )
+
+        with self.assertRaises(ValidationError):
+            ingredient.full_clean()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                RecipeIngredient.objects.create(
+                    recipe=self.recipe,
+                    food_item=self.oats,
+                    quantity=Decimal('0'),
+                    unit=FoodItem.GRAMS,
+                )
+
+    def test_recipe_ingredient_validates_price_ownership(self):
+        other_item = FoodItem.objects.create(
+            name='Milk',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+        )
+        other_price = PriceObservation.objects.create(
+            food_item=other_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('1.50'),
+        )
+        ingredient = RecipeIngredient(
+            recipe=self.recipe,
+            food_item=self.oats,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            price_observation=other_price,
+        )
+
+        with self.assertRaises(ValidationError):
+            ingredient.full_clean()
+
+    def test_recipe_ingredient_protects_food_item_from_deletion(self):
+        RecipeIngredient.objects.create(
+            recipe=self.recipe,
+            food_item=self.oats,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.oats.delete()
+
+    def test_batch_requires_positive_yield_and_ingredient_quantity(self):
+        with self.assertRaises(ValidationError):
+            MealPrepBatch(
+                name='Batch',
+                yield_quantity=Decimal('0'),
+                yield_unit=FoodItem.GRAMS,
+            ).full_clean()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                MealPrepBatch.objects.create(
+                    name='Invalid yield',
+                    yield_quantity=Decimal('0'),
+                    yield_unit=FoodItem.GRAMS,
+                )
+
+        batch = MealPrepBatch.objects.create(
+            name='Valid batch',
+            yield_quantity=Decimal('500'),
+            yield_unit=FoodItem.GRAMS,
+        )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                BatchIngredient.objects.create(
+                    batch=batch,
+                    food_item=self.oats,
+                    food_item_name_snapshot='Oats',
+                    price_observation=self.price,
+                    quantity=Decimal('0'),
+                    unit=FoodItem.GRAMS,
+                    calories=Decimal('0'),
+                    protein=Decimal('0'),
+                    carbohydrates=Decimal('0'),
+                    fat=Decimal('0'),
+                    estimated_cost=Decimal('0'),
+                    currency='EUR',
+                )
+
+    def test_batch_ingredient_validates_unit_price_owner_and_snapshot_currency(self):
+        other_item = FoodItem.objects.create(
+            name='Milk',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.MILLILITRES,
+        )
+        batch = MealPrepBatch(
+            name='Batch',
+            yield_quantity=Decimal('500'),
+            yield_unit=FoodItem.GRAMS,
+        )
+        batch.full_clean()
+
+        ingredient = BatchIngredient(
+            batch=batch,
+            food_item=self.oats,
+            food_item_name_snapshot='Oats',
+            price_observation=self.price,
+            quantity=Decimal('100'),
+            unit=FoodItem.MILLILITRES,
+            estimated_cost=Decimal('0.25'),
+            currency='EUR',
+        )
+        with self.assertRaises(ValidationError):
+            ingredient.full_clean(exclude=['batch'])
+
+        ingredient.food_item = other_item
+        with self.assertRaises(ValidationError):
+            ingredient.full_clean(exclude=['batch'])
+
+        ingredient.food_item = self.oats
+        ingredient.estimated_cost = None
+        ingredient.currency = 'EUR'
+        with self.assertRaises(ValidationError):
+            ingredient.full_clean(exclude=['batch'])
+
+    def test_deleting_catalogue_records_preserves_batch_snapshots(self):
+        batch = create_meal_prep_batch(
+            name='Sunday oats',
+            yield_quantity=Decimal('500'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.oats,
+                quantity=Decimal('250'),
+                unit=FoodItem.GRAMS,
+                price_observation=self.price,
+            )],
+        )
+        ingredient = batch.ingredients.get()
+
+        self.oats.delete()
+        ingredient.refresh_from_db()
+
+        self.assertIsNone(ingredient.food_item)
+        self.assertIsNone(ingredient.price_observation)
+        self.assertEqual(ingredient.food_item_name_snapshot, 'Oats')
+        self.assertEqual(ingredient.calories, Decimal('950.00'))
+        self.assertEqual(ingredient.estimated_cost, Decimal('0.63'))
+        self.assertEqual(calculate_batch_totals(batch).calories, Decimal('950.00'))
+
+    def test_deleting_recipe_does_not_delete_batch(self):
+        batch = create_meal_prep_batch(
+            name='My named batch',
+            recipe=self.recipe,
+            yield_quantity=Decimal('500'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.oats,
+                quantity=Decimal('250'),
+                unit=FoodItem.GRAMS,
+                price_observation=self.price,
+            )],
+        )
+
+        self.recipe.delete()
+        batch.refresh_from_db()
+
+        self.assertIsNone(batch.recipe)
+        self.assertEqual(batch.name, 'My named batch')
+        self.assertEqual(batch.ingredients.count(), 1)
+
+
+class RecipeAndMealPrepCalculationTests(TestCase):
+    def setUp(self):
+        self.oats = FoodItem.objects.create(
+            name='Oats',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+            calories_per_100=Decimal('380'),
+            protein_per_100=Decimal('13.20'),
+            carbohydrates_per_100=Decimal('67.00'),
+            fat_per_100=Decimal('6.50'),
+            nutrition_source='label',
+        )
+        self.price = PriceObservation.objects.create(
+            food_item=self.oats,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('2.50'),
+            currency='EUR',
+            source='shop',
+        )
+        self.recipe = Recipe.objects.create(name='Overnight oats')
+        self.recipe_ingredient = RecipeIngredient.objects.create(
+            recipe=self.recipe,
+            food_item=self.oats,
+            quantity=Decimal('250'),
+            unit=FoodItem.GRAMS,
+            price_observation=self.price,
+        )
+
+    def test_recipe_estimate_uses_current_catalogue_and_price_data(self):
+        estimate = calculate_recipe_estimate(self.recipe)
+        self.assertEqual(estimate.calories, Decimal('950.00'))
+        self.assertEqual(estimate.protein, Decimal('33.00'))
+        self.assertEqual(estimate.estimated_cost, Decimal('0.63'))
+        self.assertEqual(estimate.currency, 'EUR')
+        self.assertTrue(estimate.calories_complete)
+        self.assertTrue(estimate.cost_complete)
+
+        self.oats.protein_per_100 = Decimal('20.00')
+        self.oats.save()
+        self.price.paid_price = Decimal('4.00')
+        self.price.save()
+        estimate = calculate_recipe_estimate(self.recipe)
+
+        self.assertEqual(estimate.protein, Decimal('50.00'))
+        self.assertEqual(estimate.estimated_cost, Decimal('1.00'))
+
+    def test_recipe_estimate_reuses_zero_one_many_price_policy(self):
+        self.recipe_ingredient.price_observation = None
+        self.recipe_ingredient.save()
+        self.assertEqual(
+            calculate_recipe_estimate(self.recipe).estimated_cost,
+            Decimal('0.63'),
+        )
+
+        PriceObservation.objects.create(
+            food_item=self.oats,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('3.00'),
+            currency='EUR',
+        )
+        with self.assertRaisesMessage(ValueError, 'Select a price observation'):
+            calculate_recipe_estimate(self.recipe)
+
+    def test_recipe_estimate_keeps_missing_values_incomplete(self):
+        self.oats.fat_per_100 = None
+        self.oats.save()
+        self.price.delete()
+
+        estimate = calculate_recipe_estimate(self.recipe)
+
+        self.assertEqual(estimate.calories, Decimal('950.00'))
+        self.assertTrue(estimate.calories_complete)
+        self.assertFalse(estimate.fat_complete)
+        self.assertEqual(estimate.estimated_cost, Decimal('0.00'))
+        self.assertFalse(estimate.cost_complete)
+        self.assertIsNone(estimate.currency)
+
+    def test_recipe_estimate_does_not_sum_different_currencies(self):
+        other_item = FoodItem.objects.create(
+            name='Milk',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+            calories_per_100=Decimal('60'),
+            protein_per_100=Decimal('3'),
+            carbohydrates_per_100=Decimal('5'),
+            fat_per_100=Decimal('3'),
+        )
+        sterling_price = PriceObservation.objects.create(
+            food_item=other_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('1.00'),
+            currency='GBP',
+        )
+        RecipeIngredient.objects.create(
+            recipe=self.recipe,
+            food_item=other_item,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            price_observation=sterling_price,
+        )
+
+        estimate = calculate_recipe_estimate(self.recipe)
+
+        self.assertIsNone(estimate.estimated_cost)
+        self.assertIsNone(estimate.currency)
+        self.assertFalse(estimate.cost_complete)
+
+    def test_batch_totals_use_only_stored_snapshots(self):
+        batch = create_meal_prep_batch(
+            name='Sunday oats',
+            recipe=self.recipe,
+            yield_quantity=Decimal('400'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.oats,
+                quantity=Decimal('250'),
+                unit=FoodItem.GRAMS,
+                price_observation=self.price,
+            )],
+        )
+        totals_before = calculate_batch_totals(batch)
+
+        self.oats.name = 'Renamed oats'
+        self.oats.protein_per_100 = Decimal('20.00')
+        self.oats.save()
+        self.price.paid_price = Decimal('4.00')
+        self.price.save()
+        self.recipe.name = 'Changed recipe'
+        self.recipe.save()
+        self.recipe_ingredient.quantity = Decimal('900')
+        self.recipe_ingredient.save()
+
+        totals_after = calculate_batch_totals(batch)
+        ingredient = batch.ingredients.get()
+
+        self.assertEqual(totals_after, totals_before)
+        self.assertEqual(ingredient.food_item_name_snapshot, 'Oats')
+        self.assertEqual(ingredient.protein, Decimal('33.00'))
+        self.assertEqual(ingredient.estimated_cost, Decimal('0.63'))
+
+    def test_batch_totals_report_completeness_independently(self):
+        self.price.delete()
+        batch = create_meal_prep_batch(
+            name='Partial batch',
+            yield_quantity=Decimal('300'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.oats,
+                quantity=Decimal('100'),
+                unit=FoodItem.GRAMS,
+            )],
+        )
+
+        totals = calculate_batch_totals(batch)
+
+        self.assertTrue(totals.calories_complete)
+        self.assertTrue(totals.protein_complete)
+        self.assertFalse(totals.cost_complete)
+        self.assertEqual(totals.estimated_cost, Decimal('0.00'))
+        self.assertIsNone(totals.currency)
+
+    def test_batch_totals_reject_mixed_snapshot_currencies(self):
+        batch = MealPrepBatch.objects.create(
+            name='Invalid mixed-currency batch',
+            yield_quantity=Decimal('300'),
+            yield_unit=FoodItem.GRAMS,
+        )
+        BatchIngredient.objects.create(
+            batch=batch,
+            food_item_name_snapshot='Oats',
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            estimated_cost=Decimal('1.00'),
+            currency='EUR',
+        )
+        BatchIngredient.objects.create(
+            batch=batch,
+            food_item_name_snapshot='Other food',
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            estimated_cost=Decimal('1.00'),
+            currency='GBP',
+        )
+
+        with self.assertRaisesMessage(ValueError, 'single currency'):
+            calculate_batch_totals(batch)
+
+
+class MealPrepServiceTests(TestCase):
+    def setUp(self):
+        self.oats = FoodItem.objects.create(
+            name='Oats',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+            calories_per_100=Decimal('380'),
+            protein_per_100=Decimal('13.20'),
+            carbohydrates_per_100=Decimal('67.00'),
+            fat_per_100=Decimal('6.50'),
+            nutrition_source='package label',
+        )
+        self.price = PriceObservation.objects.create(
+            food_item=self.oats,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('2.50'),
+            currency='EUR',
+            source='shop receipt',
+        )
+
+    def test_create_batch_snapshots_actual_ingredients_and_totals(self):
+        batch = create_meal_prep_batch(
+            name='Sunday oats',
+            yield_quantity=Decimal('400'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.oats,
+                quantity=Decimal('250'),
+                unit=FoodItem.GRAMS,
+                price_observation=self.price,
+            )],
+        )
+        ingredient = batch.ingredients.get()
+        totals = calculate_batch_totals(batch)
+
+        self.assertEqual(batch.name, 'Sunday oats')
+        self.assertEqual(ingredient.food_item_name_snapshot, 'Oats')
+        self.assertEqual(ingredient.calories, Decimal('950.00'))
+        self.assertEqual(ingredient.protein, Decimal('33.00'))
+        self.assertEqual(ingredient.estimated_cost, Decimal('0.63'))
+        self.assertEqual(ingredient.currency, 'EUR')
+        self.assertEqual(ingredient.nutrition_source, 'package label')
+        self.assertEqual(ingredient.cost_source, 'shop receipt')
+        self.assertEqual(totals.calories, Decimal('950.00'))
+        self.assertEqual(totals.estimated_cost, Decimal('0.63'))
+        self.assertTrue(totals.nutrition_complete)
+        self.assertTrue(totals.cost_complete)
+
+    def test_create_batch_rejects_invalid_inputs_without_persisting(self):
+        with self.assertRaises(ValidationError):
+            create_meal_prep_batch(
+                name='Bad yield',
+                yield_quantity=Decimal('0'),
+                yield_unit=FoodItem.GRAMS,
+                ingredients=[BatchIngredientInput(
+                    food_item=self.oats,
+                    quantity=Decimal('100'),
+                    unit=FoodItem.GRAMS,
+                )],
+            )
+
+        with self.assertRaises(ValueError):
+            create_meal_prep_batch(
+                name='Bad amount',
+                yield_quantity=Decimal('300'),
+                yield_unit=FoodItem.GRAMS,
+                ingredients=[BatchIngredientInput(
+                    food_item=self.oats,
+                    quantity=Decimal('0'),
+                    unit=FoodItem.GRAMS,
+                )],
+            )
+
+        self.assertEqual(MealPrepBatch.objects.count(), 0)
+
+    def test_create_batch_uses_existing_zero_one_many_price_policy(self):
+        batch = create_meal_prep_batch(
+            name='Single-price batch',
+            yield_quantity=Decimal('300'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.oats,
+                quantity=Decimal('100'),
+                unit=FoodItem.GRAMS,
+            )],
+        )
+        self.assertEqual(batch.ingredients.get().price_observation, self.price)
+
+        PriceObservation.objects.create(
+            food_item=self.oats,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('3.00'),
+            currency='EUR',
+        )
+        with self.assertRaisesMessage(ValueError, 'Select a price observation'):
+            create_meal_prep_batch(
+                name='Ambiguous-price batch',
+                yield_quantity=Decimal('300'),
+                yield_unit=FoodItem.GRAMS,
+                ingredients=[BatchIngredientInput(
+                    food_item=self.oats,
+                    quantity=Decimal('100'),
+                    unit=FoodItem.GRAMS,
+                )],
+            )
+        self.assertEqual(MealPrepBatch.objects.count(), 1)
+
+    def test_create_batch_rejects_wrong_price_item_or_unit(self):
+        other_item = FoodItem.objects.create(
+            name='Milk',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.MILLILITRES,
+        )
+        other_price = PriceObservation.objects.create(
+            food_item=other_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.MILLILITRES,
+            paid_price=Decimal('1.50'),
+        )
+
+        with self.assertRaisesMessage(ValueError, 'belong'):
+            create_meal_prep_batch(
+                name='Wrong price item',
+                yield_quantity=Decimal('300'),
+                yield_unit=FoodItem.GRAMS,
+                ingredients=[BatchIngredientInput(
+                    food_item=self.oats,
+                    quantity=Decimal('100'),
+                    unit=FoodItem.GRAMS,
+                    price_observation=other_price,
+                )],
+            )
+
+        with self.assertRaises(ValueError):
+            create_meal_prep_batch(
+                name='Wrong unit',
+                yield_quantity=Decimal('300'),
+                yield_unit=FoodItem.GRAMS,
+                ingredients=[BatchIngredientInput(
+                    food_item=self.oats,
+                    quantity=Decimal('100'),
+                    unit=FoodItem.MILLILITRES,
+                    price_observation=self.price,
+                )],
+            )
+        self.assertEqual(MealPrepBatch.objects.count(), 0)
+
+    def test_create_batch_rejects_mixed_known_cost_currencies(self):
+        milk = FoodItem.objects.create(
+            name='Milk',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+            calories_per_100=Decimal('60'),
+            protein_per_100=Decimal('3'),
+            carbohydrates_per_100=Decimal('5'),
+            fat_per_100=Decimal('3'),
+        )
+        sterling_price = PriceObservation.objects.create(
+            food_item=milk,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('1.00'),
+            currency='GBP',
+        )
+
+        with self.assertRaisesMessage(ValueError, 'single currency'):
+            create_meal_prep_batch(
+                name='Mixed currency batch',
+                yield_quantity=Decimal('300'),
+                yield_unit=FoodItem.GRAMS,
+                ingredients=[
+                    BatchIngredientInput(
+                        food_item=self.oats,
+                        quantity=Decimal('100'),
+                        unit=FoodItem.GRAMS,
+                        price_observation=self.price,
+                    ),
+                    BatchIngredientInput(
+                        food_item=milk,
+                        quantity=Decimal('100'),
+                        unit=FoodItem.GRAMS,
+                        price_observation=sterling_price,
+                    ),
+                ],
+            )
+
+        self.assertEqual(MealPrepBatch.objects.count(), 0)
+
+    def test_missing_nutrition_and_price_are_snapshotted_as_incomplete(self):
+        self.oats.protein_per_100 = None
+        self.oats.save()
+        self.price.delete()
+
+        batch = create_meal_prep_batch(
+            name='Incomplete batch',
+            yield_quantity=Decimal('300'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.oats,
+                quantity=Decimal('100'),
+                unit=FoodItem.GRAMS,
+            )],
+        )
+        ingredient = batch.ingredients.get()
+        totals = calculate_batch_totals(batch)
+
+        self.assertIsNone(ingredient.protein)
+        self.assertIsNone(ingredient.estimated_cost)
+        self.assertFalse(totals.protein_complete)
+        self.assertFalse(totals.cost_complete)
+        self.assertEqual(totals.calories, Decimal('380.00'))
+
+    def test_batch_creation_is_atomic_when_a_later_snapshot_cannot_validate(self):
+        from unittest.mock import patch
+
+        original_save = BatchIngredient.save
+        call_count = 0
+
+        def fail_on_second_save(instance, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise RuntimeError('simulated persistence failure')
+            return original_save(instance, *args, **kwargs)
+
+        with patch.object(BatchIngredient, 'save', fail_on_second_save):
+            with self.assertRaisesMessage(RuntimeError, 'simulated persistence failure'):
+                create_meal_prep_batch(
+                    name='Atomic batch',
+                    yield_quantity=Decimal('300'),
+                    yield_unit=FoodItem.GRAMS,
+                    ingredients=[
+                        BatchIngredientInput(
+                            food_item=self.oats,
+                            quantity=Decimal('100'),
+                            unit=FoodItem.GRAMS,
+                            price_observation=self.price,
+                        ),
+                        BatchIngredientInput(
+                            food_item=self.oats,
+                            quantity=Decimal('50'),
+                            unit=FoodItem.GRAMS,
+                            price_observation=self.price,
+                        ),
+                    ],
+                )
+
+        self.assertEqual(MealPrepBatch.objects.count(), 0)
+        self.assertEqual(BatchIngredient.objects.count(), 0)

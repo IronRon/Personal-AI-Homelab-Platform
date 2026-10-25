@@ -2,6 +2,49 @@
 
 This is the chronological record of meaningful development work on the Personal AI Homelab Platform. Entries are newest first. Design documents describe intended requirements and rationale; this log records work actually performed and verification evidence.
 
+### 2026-10-25 — Recipe and Meal-Prep Data Foundation
+**Area:** Food / Data Layer
+
+**Summary:**
+Added the first Recipe and meal-prep batch data foundation to the existing Food Django app. Recipe estimates remain dynamic; cooked batch ingredient values are historical snapshots.
+
+**Completed:**
+
+- Added `Recipe` and `RecipeIngredient` for reusable plans using existing `FoodItem` records.
+- Added `MealPrepBatch` and `BatchIngredient` for actual cooking events, positive gram/millilitre yield, actual ingredient inputs, and copied nutrition/cost/currency/name/provenance snapshots.
+- Added dynamic recipe estimates, batch total aggregation from snapshots only, shared price-selection behavior, independent nutrient/cost completeness, and rejection of mixed known-cost currencies.
+- Added transactional batch creation with explicit model validation. Recipe deletion preserves batches; deleting FoodItems or price observations nulls batch references while preserving snapshots; recipe ingredient FoodItem references are protected.
+- Changed `backend/apps/food/models.py` and `backend/apps/food/services/calculations.py`; added `backend/apps/food/services/meal_prep.py`; extended `backend/apps/food/tests.py`.
+- Added additive migration `backend/apps/food/migrations/0002_recipe_mealprepbatch_recipeingredient_and_more.py` and focused model, calculation, and service coverage in `backend/apps/food/tests.py`.
+- Added short code docstrings/comments at the estimate, snapshot, completeness, currency, and transactional-validation boundaries.
+
+**Technical decisions:**
+
+- `FoodItem` remains the shared ingredient/product catalogue; Recipe estimates use current catalogue values.
+- BatchIngredient snapshots, not current catalogue or Recipe records, are the source for historical batch totals.
+- Missing values remain nullable and mark their corresponding totals incomplete. Known subtotals do not imply complete totals.
+- Batch creation validates with `full_clean()` because model `save()` does not call it, and the transaction prevents partial batches.
+- The batch service accepts actual input rows and an optional Recipe association; it does not yet copy RecipeIngredient rows automatically.
+
+**Testing and verification:**
+
+- `python manage.py check` passed.
+- `python manage.py makemigrations --check --dry-run` reported no changes.
+- `python manage.py test apps.food` passed: 57 tests.
+- `python manage.py test` passed: 59 tests.
+- `git diff --check` passed.
+- The migration was not applied to the development database.
+
+**Known issues / deferred work:**
+
+- No recipe/batch forms, views, URLs, templates, or user-facing workflows were added.
+- `ConsumptionEntry` does not yet reference batches; yield-based batch consumption remains future work.
+- Count-based portions, conversions, inventory, purchase accounting, arbitrary nutrition/cost overrides, AI, and infrastructure remain deferred.
+
+**Git status:**
+
+- Implementation paths were already staged when documentation synchronization began. No staging, commit, or push was performed during this work; documentation and comment updates remain unstaged.
+
 ### 2026-10-11 — Phase 4 Food Verification and User Experience
 **Area:** Food / Core UI
 

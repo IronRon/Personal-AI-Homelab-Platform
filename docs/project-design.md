@@ -1,11 +1,11 @@
 # Personal AI Homelab Platform — Living Project Design
 
 > **Document status:** Living design document — early research and design  
-> **Version:** 0.1.0  
-> **Last updated:** 2026-10-11  
+> **Version:** 0.2.0
+> **Last updated:** 2026-10-25
 > **Research snapshot:** 2026-10-11  
 > **Intended path:** `docs/project-design.md`  
-> **Implementation status:** Pre-prototype / brainstorming  
+> **Implementation status:** Food is in early implementation; platform-wide architecture remains provisional
 
 ## Status legend
 
@@ -200,11 +200,25 @@ The IDs below are useful for discussion and testing; they are not a complete spe
 
 ### Scope
 
-**Proposed first major module.** It is small enough to finish, immediately useful, and exercises relational modelling, imports, calculations, dashboards, AI tools, and mobile UI.
+**First implemented domain, with additional work ongoing.** Food is a Django app in the existing modular monolith. The data foundation covers catalogue items, consumption snapshots, recipe estimates, and meal-prep batch snapshots; it does not yet provide recipe/batch UI or batch-backed consumption.
 
 The detailed, living specification is maintained in [docs/modules/food-design.md](modules/food-design.md). This document provides the wider platform architecture and principles; the module document records Food-specific requirements, decisions, open questions, milestones, and acceptance criteria.
 
+### Current implementation and accepted data decisions
+
+- `FoodItem` remains the shared catalogue for generic ingredients and products.
+- `Recipe` is a reusable plan. `RecipeIngredient` links planned quantities to existing FoodItems, and recipe nutrition/cost estimates use current FoodItem and selected PriceObservation data.
+- `MealPrepBatch` represents a cooking event. Its actual inputs are stored as `BatchIngredient` rows with copied names, nutrient contributions, cost, currency, and provenance.
+- Batch totals are calculated from those stored ingredient snapshots only. Later FoodItem, PriceObservation, or Recipe changes do not silently alter historical batch values.
+- Recipe estimates and batch totals report component completeness independently; mixed currencies are not added together, and batch creation rejects mixed known-cost currencies.
+- `ConsumptionEntry` remains the unified consumption log, but it does not yet reference MealPrepBatch records.
+- Recipe and batch models/services use the current Django app, database, and service patterns. No worker, queue, AI runtime, MCP integration, external database, or separate service was added for this feature.
+
+Recipe/batch forms, views, templates, plan-to-batch copying workflows, consumption integration, count-based portions, and arbitrary manual total overrides remain deferred.
+
 ### Candidate entities
+
+The conceptual `Ingredient` and `Product` rows below are currently represented by the single `FoodItem` model with an item type; they are not separate Django models.
 
 | Entity | Purpose |
 |---|---|
@@ -217,6 +231,7 @@ The detailed, living specification is maintained in [docs/modules/food-design.md
 | `Portion` | Optional explicit portion record if portions vary. |
 | `NutritionSource` | Provenance for nutrition values: label, public dataset, estimate, manual entry. |
 | `ShoppingList` | Planned purchases generated manually or from selected recipes. |
+| `BatchIngredient` | Actual batch input and historical nutrition/cost contribution snapshots. |
 
 ### Useful calculations
 
@@ -1282,6 +1297,8 @@ Do not test destructive migrations or AI write tools against the only copy of re
 
 **Dependencies:** Phase 0 findings.
 
+**Current status:** The Django project, Core and Food apps, SQLite configuration, shared templates, Food migrations, and tested Food catalogue/consumption workflows exist. User-facing authentication flows, the common Job model, AI provider/tools, and AI activity records remain future work.
+
 **Suggested deliverables:**
 
 - Django project and module conventions;
@@ -1307,6 +1324,8 @@ Do not test destructive migrations or AI write tools against the only copy of re
 **Goal:** Make the platform worth using every week.
 
 **Dependencies:** Core module conventions.
+
+**Current status:** The Food catalogue and consumption workflows are implemented. Recipe/RecipeIngredient models, dynamic recipe estimates, MealPrepBatch/BatchIngredient models, snapshot-based batch totals, and transactional batch creation are also implemented. The phase’s UI workflows, batch-backed consumption, exports, shopping lists, and AI query tools are not complete; the acceptance target below remains future work.
 
 **Suggested deliverables:**
 
@@ -1597,6 +1616,7 @@ This table is a summary. Important decisions should later receive individual fil
 | Version | Date | Summary |
 |---|---|---|
 | 0.1.0 | 2026-10-11 | Initial living design covering platform vision, modules, architecture alternatives, provisional hybrid architecture, AI/tool design, jobs, security, hardware, and phased roadmap. |
+| 0.2.0 | 2026-10-25 | Recorded the implemented Food recipe and meal-prep data foundation while retaining the provisional status of platform-wide architecture and future workflows. |
 
 ## 23.2 Experiments and findings
 
@@ -1785,12 +1805,12 @@ The best provisional starting direction is:
 
 # 29. Next practical steps toward a working prototype
 
-1. Create the Git repository and place this file at `docs/project-design.md`.
-2. Add `docs/adr/` and create ADR-0001/0002 only after explicitly accepting them.
-3. Run Phase 0 model and video experiments before fixing model/queue/video-framework choices.
-4. Scaffold the Django control plane with `core`, `food`, `ai`, and `jobs` apps.
-5. Implement one deterministic Food calculation service and expose it through both a normal web form and one validated AI tool.
-6. Enter one real meal-prep batch and one ready meal so the first dashboard answers an actual personal question.
-7. Add only the infrastructure required by the next acceptance criterion.
+1. Continue recording accepted architectural decisions in ADRs; the repository and living design document already exist.
+2. Complete the recipe and meal-prep forms, views, and templates using the implemented Food data foundation.
+3. Add batch-backed `ConsumptionEntry` creation using the batch yield unit and preserve consumption snapshots.
+4. Verify the recipe, batch, and consumption workflows with focused tests and manual desktop/mobile review.
+5. Run the documented Phase 0 model and video experiments before selecting AI, queue, or video-framework technologies.
+6. Revisit Finance and other modules after the Food workflows answer real ongoing needs.
+7. Add only the infrastructure required by the next accepted feature.
 
 The project should remain deliberately boring at its centre — reliable data models, service boundaries, jobs, permissions, logs, and files — so that experimental AI and media capabilities can change rapidly around it without forcing a rewrite of the whole platform.

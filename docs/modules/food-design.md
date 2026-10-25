@@ -1,10 +1,10 @@
 # Food Module Design
 
 > **Document status:** Living module specification
-> **Version:** 0.1.0
-> **Date:** 2026-10-11
-> **Design status:** Approved starting point; implementation not started
-> **Implementation status:** Phases 1-4 implemented; recipes, meal preparation, targets, and AI remain deferred
+> **Version:** 0.6.0
+> **Date:** 2026-10-25
+> **Design status:** Approved starting point with accepted recipe/batch data-foundation decisions
+> **Implementation status:** Food tracking phases 1-4 and recipe/batch data foundation implemented; recipe/batch UI and consumption integration, targets, and AI remain deferred
 >
 > This document records the agreed starting design from the Food module discovery interview. It should be updated as implementation and real-world use expose better decisions. It does not override the wider guidance in [docs/project-design.md](../project-design.md).
 
@@ -76,11 +76,19 @@ The design was approved as a starting point, not as an irreversible schema or pr
 ### 3.5 Recipes and meal preparation
 
 - Keep a reusable `Recipe` separate from each actual `MealPrepBatch`.
-- A batch records the cooking date, actual quantities, actual yield, total cost, calculated nutrition, and portions.
-- Consumption entries may reference portions from a specific batch.
-- Recipe and batch calculations should initially use additive ingredient nutrition and cost.
-- Scale results using actual batch yield or portion count.
-- Allow manual correction when calculated values do not represent reality.
+- Recipes may reference existing `FoodItem` records, which continue to represent both generic ingredients and specific products.
+- Recipe estimates are dynamic and use current FoodItem nutrition and the selected current `PriceObservation` values.
+- A batch records a stable name, optional source Recipe, cooking date, actual ingredient rows, and positive yield in grams or millilitres.
+- RecipeIngredient rows cascade with their Recipe, protect their FoodItem, and set a deleted optional PriceObservation reference to null. A batch's optional Recipe reference and its BatchIngredient catalogue references use `SET_NULL`; deleting a batch cascades to its owned ingredient rows.
+- Each batch ingredient stores its actual quantity and historical name, nutrition contribution, allocated cost, currency, and provenance. Nullable FoodItem and PriceObservation references are provenance only; deleting those catalogue records must not erase snapshots.
+- Batch totals are calculated only from stored `BatchIngredient` snapshots. Later FoodItem, PriceObservation, or Recipe edits must not silently change a batch.
+- Recipe and batch ingredient quantities and batch yield must be positive. Ingredient units must match the FoodItem nutrition basis, and selected prices must belong to that FoodItem. Known costs in one batch must use one currency; unlike currencies are not added.
+- Missing nutrient and cost values remain unknown and make the corresponding total incomplete rather than being treated as known zero.
+- Recipe or batch corrections to nutrition/cost are not arbitrary overrides in the first implementation; correct actual ingredient quantities or selected prices instead.
+- `ConsumptionEntry` remains the unified consumption log, but batch-backed entries and portions are not implemented yet.
+- Count-based portions and servings, unit conversion, inventory, and purchase accounting are deferred.
+
+The current batch-creation service accepts actual ingredient inputs and an optional Recipe reference. It does not yet copy recipe rows automatically or expose a user workflow.
 
 ### 3.6 Data entry and scope
 
@@ -117,6 +125,8 @@ The design was approved as a starting point, not as an irreversible schema or pr
 
 ### 4.4 Recipe and meal preparation
 
+**Designed workflow; not yet available through the application UI.** The model and calculation foundation exists, but forms, views, templates, and batch-backed consumption are deferred.
+
 1. Create a reusable recipe with ingredients, quantities, units, and instructions.
 2. Start a meal-prep batch from the recipe or create one directly.
 3. Record actual ingredients and quantities used.
@@ -145,10 +155,11 @@ These are candidate concepts, not an instruction to implement every model immedi
 | `PriceObservation` | Actual/reference price, currency, store, date, and product/ingredient relationship. |
 | `ConsumptionEntry` | What was consumed, quantity, unit, timestamp, context, and snapshots. |
 | `DailyTarget` | Optional calorie and macronutrient targets. |
-| `Recipe` | Reusable preparation and expected servings. |
+| `Recipe` | Implemented reusable preparation name and instructions; serving counts are deferred. |
 | `RecipeIngredient` | Quantity/unit relationship between a recipe and an ingredient or product. |
-| `MealPrepBatch` | Actual cooking session, inputs, yield, cost, nutrition, and date. |
-| `Portion` | Consumable portion derived from a meal-prep batch. |
+| `MealPrepBatch` | Implemented cooking-event record with stable name, optional Recipe reference, cooked date, and yield. |
+| `BatchIngredient` | Implemented actual batch input with historical nutrition, cost, currency, name, and provenance snapshots. |
+| `Portion` | Deferred concept; batch yield is currently weight/volume based, with no count-based portion model. |
 
 Relationships should preserve module ownership and avoid direct access from future AI tools to ORM tables. Cross-module use should occur through application services or stable read models.
 
@@ -160,14 +171,17 @@ Calculate calories and macronutrients from the source nutrition basis and the co
 
 ### 6.2 Recipe and batch nutrition
 
-For the initial model:
+Implemented calculation behavior:
 
-- sum ingredient calories, protein, carbohydrates, fats, and costs;
-- scale quantities using explicit units and conversions;
-- divide batch totals by actual yield or portion count;
-- allow manual correction when additive calculations are insufficient.
+- Recipe estimates sum nutrient contributions and allocated costs from current FoodItem and PriceObservation values. The estimate can therefore change when catalogue values change.
+- Recipe price selection follows the existing policy: no observation leaves cost unknown, one is selected automatically, and multiple observations require an explicit selection.
+- Batch creation calculates actual ingredient contributions once and stores them on `BatchIngredient`. Batch totals sum those snapshots only; they do not reread current catalogue or recipe data.
+- Batch yield is stored in `g` or `ml`; division by yield for per-unit values and batch consumption are not yet implemented.
+- Nutrient and cost completeness are tracked independently. Known subtotals may be returned, but an incomplete flag means the subtotal is not a complete total.
+- Known batch costs must share one currency. Recipe estimates with mixed currencies do not produce a combined monetary total.
+- Model validation is explicitly invoked by the batch service; Django `save()` does not call `full_clean()` automatically. Batch and ingredient snapshot writes are transactional.
 
-Detailed cooking-loss, water-absorption, and nutrient-retention models are deferred.
+Arbitrary manual total overrides, cooking-loss, water-absorption, and nutrient-retention models are deferred.
 
 ### 6.3 Cost analysis
 
@@ -195,7 +209,7 @@ Entries may be saved with unknown nutrition or cost. Reports should calculate kn
 - **History:** consumption records, date filtering, correction, and basic trends.
 - **Catalog:** ingredients, products, nutrition profiles, price observations, and provenance.
 
-Recipes and meal-prep screens are the next vertical slice unless the open prioritisation question changes that order.
+Recipe and meal-prep screens and batch-backed consumption are the next user-facing vertical slice. They are not part of the implemented data foundation.
 
 The UI should be mobile-friendly and should support common actions through normal forms and buttons without requiring chat.
 
@@ -257,8 +271,10 @@ The MVP does not include live AI integration, OCR, external nutrition APIs, CSV 
 
 ## 10. Future backlog
 
-- Recipes and recipe scaling.
-- Meal-prep batches and portions.
+- Recipe and batch forms, views, templates, and user workflows.
+- Copying a recipe plan into editable actual batch ingredient inputs.
+- Batch-backed consumption entries and yield-based nutrition/cost scaling.
+- Count-based portions, servings, and unit conversions.
 - Shopping lists.
 - CSV imports.
 - Receipt and nutrition-label OCR.
@@ -287,15 +303,14 @@ The MVP does not include live AI integration, OCR, external nutrition APIs, CSV 
 
 These questions must remain visible rather than being silently resolved during implementation:
 
-1. Should basic meal preparation be prioritised earlier than the current daily-tracking-first MVP sequence?
-2. How should grocery purchase expenditure differ from the allocated cost of consumed food?
-3. How should serving sizes, food density, quantities, and unit conversions be represented and validated?
-4. Should daily targets be fixed values or vary by day?
-5. Should meal-prep portions be weight-based, count-based, or support both?
-6. Should recipe ingredients reference generic ingredients, products, or either?
-7. How should alcohol, supplements, and restaurant meals be represented?
-8. Should currency conversion be supported later?
-9. Which historical reports and charts are most useful beyond daily totals?
+1. How should grocery purchase expenditure differ from the allocated cost of consumed food?
+2. How should serving sizes, food density, quantities, and unit conversions be represented and validated?
+3. Should daily targets be fixed values or vary by day?
+4. How should alcohol, supplements, and restaurant meals be represented differently?
+5. Should currency conversion be supported later?
+6. Which historical reports and charts are most useful beyond daily totals?
+
+Resolved for the data foundation: recipes may use either FoodItem type; batch yield is `g` or `ml`; recipe estimates are dynamic; batch ingredient contributions are snapshots; and mixed known batch-cost currencies are rejected. Count-based portions remain deferred.
 
 ## 13. Proposed development milestones
 
@@ -305,8 +320,11 @@ These questions must remain visible rather than being silently resolved during i
 - [x] Implement Phase 2 catalogue management, search, FoodItem forms, and price history.
 - [x] Implement consumption entries, snapshot application services, and daily summaries.
 - [x] Add quick logging, history, and estimated consumed-cost metrics. Daily targets remain deferred.
-- [ ] Add recipe and meal-prep batch workflows.
-- [ ] Add focused calculation and workflow tests.
+- [x] Add Recipe, RecipeIngredient, MealPrepBatch, and BatchIngredient data models and migration.
+- [x] Add dynamic recipe estimates, snapshot-based batch totals, and transactional batch creation.
+- [x] Add focused model, calculation, snapshot-stability, currency, and service tests.
+- [ ] Add recipe and meal-prep forms, views, templates, and user workflows.
+- [ ] Add batch-backed ConsumptionEntry logging and yield-based scaling.
 - [ ] Expose validated domain services for future AI tools.
 - [ ] Add AI tools only after deterministic workflows are reliable.
 
@@ -314,22 +332,26 @@ Milestone ordering should be revisited if the meal-preparation prioritisation qu
 
 ## 14. Acceptance criteria
 
-- [ ] A user can create or quick-add a food/product.
-- [ ] A user can log a measured or estimated consumption.
-- [ ] Daily calories, protein, carbohydrates, fats, and cost are calculated.
-- [ ] Unknown values are clearly flagged.
-- [ ] Historical entries remain stable after catalog edits.
+- [x] A user can create or edit a reusable FoodItem catalogue record.
+- [ ] A user can quick-add an uncatalogued food directly while logging consumption.
+- [x] A user can log a measured catalogue consumption and view daily nutrition/cost summaries.
+- [x] Unknown consumption and estimate values are preserved and represented by completeness state.
+- [x] Existing ConsumptionEntry snapshots remain stable after catalogue edits.
 - [ ] Optional targets can be compared with daily intake.
-- [ ] Core cost metrics are available.
-- [ ] The primary workflows work on desktop and mobile layouts.
-- [ ] Domain calculations are tested independently of AI.
+- [ ] Comprehensive cost analysis and purchase accounting are available.
+- [ ] All primary workflows have been manually verified on desktop and mobile layouts.
+- [x] Recipe estimates use current catalogue data and expose independent completeness results.
+- [x] MealPrepBatch ingredient contributions are snapshotted and batch totals do not reread catalogue or Recipe data.
+- [x] Positive quantities/yield, unit matching, price ownership, deletion behavior, and single-currency batch costs are validated and tested.
+- [ ] Recipe and batch workflows are available through the UI, including batch-backed consumption.
+- [x] Domain calculations are tested independently of AI.
 - [ ] Future AI tools can call shared services without direct database access.
 
 ## 15. Current implementation status
 
-**Implemented:** Phase 1 contains `FoodItem`, `PriceObservation`, and `ConsumptionEntry` models, the initial Food migration, reusable nutrition/cost/daily aggregation services, and focused automated tests. Phase 2 adds catalogue listing/search, FoodItem create/edit forms, nutrition validation, price observation create/edit forms, price history, and integration tests. Phase 3 adds application services for consumption creation, metadata-only updates, explicit recalculation, and daily summaries, plus logging, Today, history, correction, deletion, and integration tests. Phase 4 improves Food navigation, contextual guidance, empty states, mobile-oriented shared styling, outside-meal terminology, and regression coverage. The configured reporting timezone is `Europe/Dublin`.
+**Implemented:** Phases 1-4 provide `FoodItem`, `PriceObservation`, and `ConsumptionEntry`, catalogue management, consumption logging, historical snapshots, Today/History, navigation, and focused automated tests. The recipe/batch data foundation adds `Recipe`, `RecipeIngredient`, `MealPrepBatch`, and `BatchIngredient`, dynamic recipe estimates, snapshot-based batch totals, and transactional batch creation. Its migration is generated; the development database has not been migrated as part of that implementation. The configured reporting timezone is `Europe/Dublin`.
 
-**Planned:** Daily targets, recipes, meal-prep workflows, advanced cost analysis, and AI tool integrations remain planned. Serving/density conversions, count/portion units, and external data sources are also deferred.
+**Planned or deferred:** Recipe and batch forms/views/templates, copying recipe rows into actual batch inputs, batch-backed ConsumptionEntry logging, yield-based scaling for consumed batch quantities, daily targets, advanced cost analysis, and AI tool integrations are not implemented. Arbitrary manual nutrition/cost overrides, count-based portions and servings, conversions, inventory, purchase accounting, and external data sources remain deferred.
 
 This status should be updated as milestones are completed. Planned requirements must not be described as implemented until they exist in working code and have been tested.
 
@@ -342,3 +364,4 @@ This status should be updated as milestones are completed. Planned requirements 
 | 0.3.0 | 2026-10-11 | Recorded Phase 2 catalogue management, search, forms, price history, and integration tests. |
 | 0.4.0 | 2026-10-11 | Recorded Phase 3 consumption services, snapshot creation/recalculation, Today/history pages, deletion, timezone aggregation, and tests. |
 | 0.5.0 | 2026-10-11 | Recorded Phase 4 navigation, user guidance, outside-meal terminology, responsive UI improvements, and verification. |
+| 0.6.0 | 2026-10-25 | Recorded the recipe/meal-prep data foundation, dynamic recipe estimates, historical batch snapshots, validation, and deferred UI/consumption workflows. |

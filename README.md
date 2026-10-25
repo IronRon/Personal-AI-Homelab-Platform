@@ -4,9 +4,9 @@ A local-first, modular platform for personal applications, information, automati
 
 The platform is intended to remain useful without AI. AI will provide natural-language interaction, analysis, recommendations, planning, and controlled tool execution on top of ordinary deterministic application features.
 
-> **Status:** Pre-prototype / early research
+> **Status:** Early development; Food is the currently implemented module
 >
-> The current architecture and technology choices are provisional. See [docs/project-design.md](docs/project-design.md) for the living design document and decision history.
+> The wider architecture and technology choices remain provisional. See [docs/project-design.md](docs/project-design.md) and [docs/modules/food-design.md](docs/modules/food-design.md) for current design and implementation status.
 
 ## Vision
 
@@ -95,16 +95,25 @@ The project is intended to grow through useful vertical slices:
 
 ```text
 .
+├── backend/
+│   ├── manage.py
+│   ├── apps/
+│   │   ├── core/
+│   │   └── food/
+│   ├── config/
+│   └── templates/
 ├── docs/
+│   ├── development-log.md
+│   ├── modules/
 │   └── project-design.md
 └── README.md
 ```
 
-The layout will grow as implementation begins. The design document includes an illustrative target structure for apps, workers, adapters, templates, static files, and tests.
+The wider design document includes a provisional target structure for future apps, workers, adapters, and integrations.
 
 ## Current status
 
-No application code has been implemented yet. The repository currently contains the project design and foundational documentation. Technology decisions remain open where the design document marks them as proposed or under consideration.
+The Django control plane currently contains a working Core home page and Food catalogue, consumption tracking, and history workflows. Recipe estimates and meal-prep batch data foundations are implemented, including historical ingredient snapshots and calculation services. Recipe/batch screens, batch-backed consumption logging, and other platform modules remain future work. Architecture choices not explicitly accepted in the design documents remain provisional.
 
 ## Development setup
 
@@ -171,4 +180,4 @@ python manage.py test
 ## Documentation
 
 - [Project design](docs/project-design.md): requirements, architecture, modules, technology comparisons, AI safety model, data strategy, job system, and roadmap notes.
-- [Food module design](docs/modules/food-design.md): the living requirements and planned design for Food tracking, nutrition, recipes, meal preparation, and cost analysis.
+- [Food module design](docs/modules/food-design.md): Food requirements, implemented data foundations, deferred workflows, and cost/nutrition rules.

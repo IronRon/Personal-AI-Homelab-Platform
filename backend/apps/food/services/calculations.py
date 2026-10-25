@@ -34,6 +34,56 @@ class DailyTotals:
     fat_complete: bool
 
 
+@dataclass(frozen=True)
+class RecipeEstimate:
+    calories: Decimal
+    protein: Decimal
+    carbohydrates: Decimal
+    fat: Decimal
+    estimated_cost: Optional[Decimal]
+    currency: Optional[str]
+    calories_complete: bool
+    protein_complete: bool
+    carbohydrates_complete: bool
+    fat_complete: bool
+    cost_complete: bool
+    ingredient_count: int
+
+    @property
+    def nutrition_complete(self) -> bool:
+        return all((
+            self.calories_complete,
+            self.protein_complete,
+            self.carbohydrates_complete,
+            self.fat_complete,
+        ))
+
+
+@dataclass(frozen=True)
+class BatchTotals:
+    calories: Decimal
+    protein: Decimal
+    carbohydrates: Decimal
+    fat: Decimal
+    estimated_cost: Decimal
+    currency: Optional[str]
+    calories_complete: bool
+    protein_complete: bool
+    carbohydrates_complete: bool
+    fat_complete: bool
+    cost_complete: bool
+    ingredient_count: int
+
+    @property
+    def nutrition_complete(self) -> bool:
+        return all((
+            self.calories_complete,
+            self.protein_complete,
+            self.carbohydrates_complete,
+            self.fat_complete,
+        ))
+
+
 def _quantize(value: Decimal, quantum: Decimal) -> Decimal:
     return value.quantize(quantum, rounding=ROUND_HALF_UP)
 
@@ -93,6 +143,140 @@ def calculate_consumption(food_item, quantity: Decimal, unit: str, price_observa
     nutrition = scale_nutrition(food_item, quantity, unit)
     cost = calculate_allocated_cost(quantity, unit, price_observation)
     return nutrition, cost
+
+
+def select_price_observation(food_item, selected_price_observation=None):
+    """Apply the Food price policy: none, auto-select one, require choice for many."""
+    if selected_price_observation is not None:
+        if selected_price_observation.food_item_id != food_item.pk:
+            raise ValueError('Price observation must belong to the selected food item.')
+        if selected_price_observation.package_unit != food_item.nutrition_basis_unit:
+            raise ValueError('Price observation package unit must match the food item basis.')
+        return selected_price_observation
+
+    observations = list(food_item.price_observations.all())
+    if len(observations) > 1:
+        raise ValueError('Select a price observation when multiple prices are available.')
+    return observations[0] if observations else None
+
+
+def _sum_component(values: list[Optional[Decimal]], quantum: Decimal):
+    """Return the known subtotal and flag unknown inputs instead of masking them as zero."""
+    subtotal = _quantize(
+        sum((value for value in values if value is not None), Decimal('0')),
+        quantum,
+    )
+    complete = bool(values) and all(value is not None for value in values)
+    return subtotal, complete
+
+
+def calculate_recipe_estimate(recipe) -> RecipeEstimate:
+    """Estimate from live catalogue data; unlike a batch, a recipe is not historical."""
+    ingredient_rows = list(
+        recipe.ingredients.select_related('food_item', 'price_observation')
+    )
+    nutrition_values = {key: [] for key in ('calories', 'protein', 'carbohydrates', 'fat')}
+    costs = []
+    cost_currencies = set()
+
+    for ingredient in ingredient_rows:
+        ingredient.full_clean()
+        price_observation = select_price_observation(
+            ingredient.food_item,
+            ingredient.price_observation,
+        )
+        nutrition, cost = calculate_consumption(
+            ingredient.food_item,
+            ingredient.quantity,
+            ingredient.unit,
+            price_observation,
+        )
+        for key in nutrition_values:
+            nutrition_values[key].append(getattr(nutrition, key))
+        costs.append(cost)
+        if cost is not None:
+            cost_currencies.add(price_observation.currency)
+
+    calories, calories_complete = _sum_component(nutrition_values['calories'], NUTRIENT_QUANTUM)
+    protein, protein_complete = _sum_component(nutrition_values['protein'], NUTRIENT_QUANTUM)
+    carbohydrates, carbohydrates_complete = _sum_component(
+        nutrition_values['carbohydrates'],
+        NUTRIENT_QUANTUM,
+    )
+    fat, fat_complete = _sum_component(nutrition_values['fat'], NUTRIENT_QUANTUM)
+
+    if len(cost_currencies) > 1:
+        # A monetary subtotal across currencies is meaningless without an FX policy.
+        estimated_cost = None
+        currency = None
+        cost_complete = False
+    else:
+        estimated_cost, cost_complete = _sum_component(costs, MONEY_QUANTUM)
+        currency = next(iter(cost_currencies), None)
+
+    return RecipeEstimate(
+        calories=calories,
+        protein=protein,
+        carbohydrates=carbohydrates,
+        fat=fat,
+        estimated_cost=estimated_cost,
+        currency=currency,
+        calories_complete=calories_complete,
+        protein_complete=protein_complete,
+        carbohydrates_complete=carbohydrates_complete,
+        fat_complete=fat_complete,
+        cost_complete=cost_complete,
+        ingredient_count=len(ingredient_rows),
+    )
+
+
+def calculate_batch_totals(batch) -> BatchTotals:
+    """Aggregate snapshots only, so later catalogue or recipe edits cannot rewrite history."""
+    ingredient_rows = list(batch.ingredients.all())
+    cost_currencies = {
+        ingredient.currency
+        for ingredient in ingredient_rows
+        if ingredient.estimated_cost is not None
+    }
+    if len(cost_currencies) > 1:
+        # A cooked batch has one reporting currency; never add unlike currencies.
+        raise ValueError('Batch ingredient costs must use a single currency.')
+
+    calories, calories_complete = _sum_component(
+        [ingredient.calories for ingredient in ingredient_rows],
+        NUTRIENT_QUANTUM,
+    )
+    protein, protein_complete = _sum_component(
+        [ingredient.protein for ingredient in ingredient_rows],
+        NUTRIENT_QUANTUM,
+    )
+    carbohydrates, carbohydrates_complete = _sum_component(
+        [ingredient.carbohydrates for ingredient in ingredient_rows],
+        NUTRIENT_QUANTUM,
+    )
+    fat, fat_complete = _sum_component(
+        [ingredient.fat for ingredient in ingredient_rows],
+        NUTRIENT_QUANTUM,
+    )
+    estimated_cost, cost_complete = _sum_component(
+        [ingredient.estimated_cost for ingredient in ingredient_rows],
+        MONEY_QUANTUM,
+    )
+
+    return BatchTotals(
+        calories=calories,
+        protein=protein,
+        carbohydrates=carbohydrates,
+        fat=fat,
+        estimated_cost=estimated_cost,
+        currency=next(iter(cost_currencies), None),
+        calories_complete=calories_complete,
+        protein_complete=protein_complete,
+        carbohydrates_complete=carbohydrates_complete,
+        fat_complete=fat_complete,
+        cost_complete=cost_complete,
+        ingredient_count=len(ingredient_rows),
+    )
 
 
 def _sum_known(values: list[Optional[Decimal]]) -> Decimal:

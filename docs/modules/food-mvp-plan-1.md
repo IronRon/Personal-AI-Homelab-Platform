@@ -50,6 +50,19 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 
 **Phase 4 status: Implemented.** Verification, Food landing-page navigation, shared Food navigation, contextual help, empty states, outside-meal guidance, responsive styling improvements, route regressions, and documentation updates are complete. No recipes, meal preparation, serving conversions, AI, or new infrastructure were added. Rendered visual inspection was not automated in this environment; manual desktop/mobile browser review remains part of the checklist below.
 
+### Follow-on: Recipe and meal-prep data foundation
+
+**Status: Data foundation implemented on 2026-10-25; user workflows remain deferred.** This is follow-on work beyond the original basic tracking milestone above.
+
+- Added `Recipe` and `RecipeIngredient` for reusable plans using existing `FoodItem` records. Recipe estimates use current nutrition and price data and follow the existing zero/one/multiple price-selection policy.
+- Added `MealPrepBatch` and `BatchIngredient` for actual cooking events and actual ingredient inputs. Ingredient names, nutrient contributions, allocated costs, currency, and provenance are snapshotted when the batch is created; batch totals read snapshots only.
+- Added positive quantity/yield and unit/price ownership validation, single-currency validation for known batch costs, and transactional batch creation. Missing nutrient or cost values remain incomplete.
+- Added one additive migration and focused model, calculation, snapshot-stability, currency, and service tests. The migration was not applied to the development database.
+- Verification passed: `python manage.py check`; `python manage.py makemigrations --check --dry-run`; `python manage.py test apps.food` (57 tests); `python manage.py test` (59 tests); and `git diff --check`.
+- No forms, views, URLs, templates, batch-backed consumption, documentation-driven UI, infrastructure, or AI integration were included in this implementation slice.
+
+Next Food work for this area is the user-facing recipe and batch workflow, followed by integrating batch yield into the unified `ConsumptionEntry` flow. Count-based portions, unit conversion, inventory, purchase accounting, and arbitrary manual nutrition/cost overrides remain deferred.
+
 **Relevant files**
 - `docs/modules/food-design.md` — primary requirements, open questions, milestone checklist, and implementation status.
 - `docs/project-design.md` — wider modular-monolith, service-layer, local-first, SQLite, and AI-tool boundaries.
