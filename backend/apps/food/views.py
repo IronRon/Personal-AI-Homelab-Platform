@@ -7,16 +7,30 @@ from django.http import HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_GET
 
 from .forms import (
+    BatchIngredientFormSet,
     ConsumptionEntryForm,
     FoodItemForm,
+    MealPrepBatchForm,
     PriceObservationForm,
     RecipeForm,
     RecipeIngredientForm,
 )
-from .models import ConsumptionEntry, FoodItem, PriceObservation, Recipe, RecipeIngredient
-from .services.calculations import calculate_recipe_estimate, select_price_observation
+from .models import (
+    ConsumptionEntry,
+    FoodItem,
+    MealPrepBatch,
+    PriceObservation,
+    Recipe,
+    RecipeIngredient,
+)
+from .services.calculations import (
+    calculate_batch_totals,
+    calculate_recipe_estimate,
+    select_price_observation,
+)
 from .services.consumption import (
     create_consumption_entry,
     get_consumption_entries_for_date,
@@ -24,6 +38,7 @@ from .services.consumption import (
     recalculate_consumption_entry,
     update_consumption_entry,
 )
+from .services.meal_prep import BatchIngredientInput, create_meal_prep_batch
 
 
 def catalogue(request):
@@ -174,6 +189,158 @@ def recipe_detail(request, pk):
             'estimate': estimate,
             'estimate_error': estimate_error,
             'mixed_currency': mixed_currency,
+        },
+    )
+
+
+@require_GET
+def meal_prep_list(request):
+    batches = MealPrepBatch.objects.select_related('recipe').prefetch_related('ingredients')
+    return render(request, 'food/meal_prep_batch_list.html', {'batches': batches})
+
+
+def _recipe_batch_initial(recipe):
+    return [
+        {
+            'food_item': ingredient.food_item_id,
+            'quantity': ingredient.quantity,
+            'unit': ingredient.unit,
+            'price_observation': ingredient.price_observation_id or '',
+        }
+        for ingredient in recipe.ingredients.all()
+    ]
+
+
+def _render_meal_prep_form(request, form, formset):
+    return render(
+        request,
+        'food/meal_prep_batch_form.html',
+        {
+            'form': form,
+            'formset': formset,
+            'recipe_choices': Recipe.objects.order_by('name', 'id'),
+        },
+    )
+
+
+def meal_prep_create(request):
+    prefix = 'ingredients'
+    if request.method != 'POST':
+        recipe_id = request.GET.get('recipe')
+        try:
+            recipe = Recipe.objects.filter(pk=int(recipe_id)).first() if recipe_id else None
+        except ValueError:
+            recipe = None
+        initial = {'recipe': recipe.pk} if recipe else None
+        form = MealPrepBatchForm(initial=initial)
+        formset = BatchIngredientFormSet(
+            initial=_recipe_batch_initial(recipe) if recipe else None,
+            prefix=prefix,
+        )
+        return _render_meal_prep_form(request, form, formset)
+
+    form = MealPrepBatchForm(request.POST)
+    action = request.POST.get('action', 'create')
+    if 'remove_index' in request.POST:
+        action = 'remove_ingredient'
+
+    if action == 'load_recipe':
+        form.is_valid()
+        recipe = form.cleaned_data.get('recipe')
+        if recipe is None:
+            form.add_error('recipe', 'Choose a Recipe before loading its planned ingredients.')
+            initial = None
+        else:
+            initial = _recipe_batch_initial(recipe)
+        formset = BatchIngredientFormSet(initial=initial, prefix=prefix)
+        return _render_meal_prep_form(request, form, formset)
+
+    post_data = request.POST.copy()
+    if action == 'add_ingredient':
+        try:
+            total_forms = int(post_data.get(f'{prefix}-TOTAL_FORMS', '0'))
+        except ValueError:
+            total_forms = 0
+        post_data[f'{prefix}-TOTAL_FORMS'] = str(total_forms + 1)
+    elif action == 'remove_ingredient':
+        try:
+            row_index = int(request.POST.get('remove_index', '-1'))
+            total_forms = int(post_data.get(f'{prefix}-TOTAL_FORMS', '0'))
+        except ValueError:
+            row_index = -1
+            total_forms = 0
+        if 0 <= row_index < total_forms:
+            post_data[f'{prefix}-{row_index}-DELETE'] = 'on'
+
+    formset = BatchIngredientFormSet(post_data, prefix=prefix)
+    if action in ('add_ingredient', 'remove_ingredient'):
+        form.is_valid()
+        formset.is_valid()
+        # Interim POSTs retain submitted rows in the bound formset without saving a draft batch.
+        return _render_meal_prep_form(request, form, formset)
+
+    if form.is_valid() and formset.is_valid():
+        ingredient_inputs = [
+            BatchIngredientInput(
+                food_item=ingredient['food_item'],
+                quantity=ingredient['quantity'],
+                unit=ingredient['unit'],
+                price_observation=ingredient['price_observation'],
+            )
+            for ingredient_form in formset.forms
+            if (ingredient := ingredient_form.cleaned_data)
+            and not ingredient.get('DELETE')
+            and ingredient.get('food_item') is not None
+        ]
+        try:
+            # Keep snapshot construction and transactional persistence in the domain service.
+            batch = create_meal_prep_batch(
+                name=form.cleaned_data['name'],
+                recipe=form.cleaned_data['recipe'],
+                cooked_at=form.cleaned_data['cooked_at'],
+                yield_quantity=form.cleaned_data['yield_quantity'],
+                yield_unit=form.cleaned_data['yield_unit'],
+                ingredients=ingredient_inputs,
+            )
+        except ValidationError as error:
+            if hasattr(error, 'error_dict'):
+                for field, errors in error.error_dict.items():
+                    target = field if field in form.fields else None
+                    for field_error in errors:
+                        form.add_error(target, field_error)
+            else:
+                for message in error.messages:
+                    form.add_error(None, message)
+        except ValueError as error:
+            form.add_error(None, str(error))
+        else:
+            messages.success(request, f'{batch.name} was added to Meal Prep.')
+            return redirect('meal_prep_detail', pk=batch.pk)
+
+    return _render_meal_prep_form(request, form, formset)
+
+
+@require_GET
+def meal_prep_detail(request, pk):
+    batch = get_object_or_404(
+        MealPrepBatch.objects.select_related('recipe').prefetch_related('ingredients'),
+        pk=pk,
+    )
+    totals = None
+    totals_error = False
+    try:
+        # Batch totals must remain historical and never reread live catalogue values.
+        totals = calculate_batch_totals(batch)
+    except ValueError:
+        totals_error = True
+    return render(
+        request,
+        'food/meal_prep_batch_detail.html',
+        {
+            'batch': batch,
+            'ingredients': batch.ingredients.all(),
+            'totals': totals,
+            'totals_error': totals_error,
         },
     )
 

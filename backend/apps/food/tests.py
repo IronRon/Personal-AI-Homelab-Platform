@@ -9,8 +9,11 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .forms import (
+    BatchIngredientForm,
+    BatchIngredientFormSet,
     ConsumptionEntryForm,
     FoodItemForm,
+    MealPrepBatchForm,
     PriceObservationForm,
     RecipeForm,
     RecipeIngredientForm,
@@ -1454,7 +1457,7 @@ class RecipeWorkflowTests(TestCase):
         self.assertContains(response, 'Mix and chill overnight.')
         self.assertContains(response, 'This recipe has no planned ingredients yet')
         self.assertContains(response, 'Add at least one to see its estimate')
-        self.assertNotContains(response, 'Create batch')
+        self.assertContains(response, 'Create batch')
 
     def test_recipe_ingredient_create_and_detail_estimate(self):
         response = self.client.post(
@@ -1707,3 +1710,381 @@ class RecipeWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'The estimate is unavailable')
         self.assertNotContains(response, 'Traceback')
+
+
+class MealPrepFormTests(TestCase):
+    def setUp(self):
+        self.food_item = FoodItem.objects.create(
+            name='Rolled Oats',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+        )
+        self.price = PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('2.50'),
+        )
+
+    def _ingredient_data(self, **overrides):
+        data = {
+            'food_item': self.food_item.pk,
+            'quantity': '250',
+            'unit': FoodItem.GRAMS,
+            'price_observation': '',
+        }
+        data.update(overrides)
+        return data
+
+    def test_batch_form_defaults_cooked_time_and_rejects_invalid_yield(self):
+        form = MealPrepBatchForm()
+
+        self.assertEqual(form.fields['cooked_at'].widget.input_type, 'datetime-local')
+        self.assertTrue(form['cooked_at'].value())
+
+        invalid = MealPrepBatchForm(data={
+            'name': 'Oats',
+            'recipe': '',
+            'cooked_at': '2026-10-25T12:30',
+            'yield_quantity': '0',
+            'yield_unit': FoodItem.GRAMS,
+        })
+        self.assertFalse(invalid.is_valid())
+        self.assertIn('yield_quantity', invalid.errors)
+
+    def test_ingredient_form_matches_unit_and_reuses_price_policy(self):
+        single_price = BatchIngredientForm(data=self._ingredient_data())
+        self.assertTrue(single_price.is_valid(), single_price.errors)
+        self.assertEqual(single_price.cleaned_data['price_observation'], self.price)
+
+        second_price = PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('500'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('1.50'),
+        )
+        ambiguous = BatchIngredientForm(data=self._ingredient_data())
+        self.assertFalse(ambiguous.is_valid())
+        self.assertIn('price_observation', ambiguous.errors)
+
+        explicit = BatchIngredientForm(data=self._ingredient_data(
+            price_observation=str(second_price.pk),
+        ))
+        self.assertTrue(explicit.is_valid(), explicit.errors)
+        self.assertEqual(explicit.cleaned_data['price_observation'], second_price)
+
+    def test_ingredient_form_rejects_unit_and_price_ownership_mismatch(self):
+        wrong_unit = BatchIngredientForm(data=self._ingredient_data(unit=FoodItem.MILLILITRES))
+        self.assertFalse(wrong_unit.is_valid())
+        self.assertIn('unit', wrong_unit.errors)
+
+        other_item = FoodItem.objects.create(
+            name='Milk',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+        )
+        other_price = PriceObservation.objects.create(
+            food_item=other_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('1.50'),
+        )
+        wrong_price = BatchIngredientForm(data=self._ingredient_data(
+            price_observation=str(other_price.pk),
+        ))
+        self.assertFalse(wrong_price.is_valid())
+        self.assertIn('price_observation', wrong_price.errors)
+
+    def test_formset_requires_one_non_deleted_ingredient_and_ignores_blank_extra_row(self):
+        blank = {
+            'ingredients-TOTAL_FORMS': '1',
+            'ingredients-INITIAL_FORMS': '0',
+            'ingredients-MIN_NUM_FORMS': '1',
+            'ingredients-MAX_NUM_FORMS': '1000',
+        }
+        self.assertFalse(BatchIngredientFormSet(data=blank, prefix='ingredients').is_valid())
+
+        valid_with_blank_extra = {
+            'ingredients-TOTAL_FORMS': '2',
+            'ingredients-INITIAL_FORMS': '0',
+            'ingredients-MIN_NUM_FORMS': '1',
+            'ingredients-MAX_NUM_FORMS': '1000',
+            'ingredients-0-food_item': str(self.food_item.pk),
+            'ingredients-0-quantity': '250',
+            'ingredients-0-unit': FoodItem.GRAMS,
+            'ingredients-0-price_observation': str(self.price.pk),
+        }
+        formset = BatchIngredientFormSet(data=valid_with_blank_extra, prefix='ingredients')
+        self.assertTrue(formset.is_valid(), formset.errors)
+
+        valid_with_blank_extra['ingredients-0-DELETE'] = 'on'
+        deleted_formset = BatchIngredientFormSet(
+            data=valid_with_blank_extra,
+            prefix='ingredients',
+        )
+        self.assertFalse(deleted_formset.is_valid())
+
+
+class MealPrepWorkflowTests(TestCase):
+    def setUp(self):
+        self.food_item = FoodItem.objects.create(
+            name='Rolled Oats',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+            calories_per_100=Decimal('380'),
+            protein_per_100=Decimal('13.20'),
+            carbohydrates_per_100=Decimal('67.00'),
+            fat_per_100=Decimal('6.50'),
+            nutrition_source='package label',
+        )
+        self.price = PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('2.50'),
+            currency='EUR',
+            source='shop receipt',
+        )
+        self.recipe = Recipe.objects.create(name='Overnight oats')
+
+    def _batch_post_data(self, **overrides):
+        data = {
+            'name': 'Sunday oats',
+            'recipe': '',
+            'cooked_at': '2026-10-25T12:30',
+            'yield_quantity': '400',
+            'yield_unit': FoodItem.GRAMS,
+            'ingredients-TOTAL_FORMS': '1',
+            'ingredients-INITIAL_FORMS': '0',
+            'ingredients-MIN_NUM_FORMS': '1',
+            'ingredients-MAX_NUM_FORMS': '1000',
+            'ingredients-0-food_item': str(self.food_item.pk),
+            'ingredients-0-quantity': '250',
+            'ingredients-0-unit': FoodItem.GRAMS,
+            'ingredients-0-price_observation': str(self.price.pk),
+            'action': 'create',
+        }
+        data.update(overrides)
+        return data
+
+    def test_batch_list_empty_state_and_navigation(self):
+        response = self.client.get(reverse('meal_prep_list'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No batches yet')
+        self.assertContains(response, reverse('meal_prep_create'))
+        self.assertContains(response, 'Meal Prep')
+
+    def test_batch_list_orders_newest_cooked_first(self):
+        older = create_meal_prep_batch(
+            name='Older batch',
+            cooked_at=timezone.datetime(2026, 10, 20, 12, tzinfo=timezone.get_current_timezone()),
+            yield_quantity=Decimal('300'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.food_item,
+                quantity=Decimal('100'),
+                unit=FoodItem.GRAMS,
+                price_observation=self.price,
+            )],
+        )
+        newer = create_meal_prep_batch(
+            name='Newer batch',
+            cooked_at=timezone.datetime(2026, 10, 24, 12, tzinfo=timezone.get_current_timezone()),
+            yield_quantity=Decimal('350'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.food_item,
+                quantity=Decimal('120'),
+                unit=FoodItem.GRAMS,
+                price_observation=self.price,
+            )],
+        )
+
+        response = self.client.get(reverse('meal_prep_list'))
+
+        self.assertLess(response.content.index(b'Newer batch'), response.content.index(b'Older batch'))
+        self.assertEqual(older.ingredients.count(), 1)
+        self.assertEqual(newer.ingredients.count(), 1)
+
+    def test_create_direct_batch_persists_through_service_and_redirects(self):
+        response = self.client.post(reverse('meal_prep_create'), self._batch_post_data())
+
+        batch = MealPrepBatch.objects.get(name='Sunday oats')
+        ingredient = batch.ingredients.get()
+        self.assertRedirects(response, reverse('meal_prep_detail', kwargs={'pk': batch.pk}))
+        self.assertEqual(ingredient.food_item_name_snapshot, 'Rolled Oats')
+        self.assertEqual(ingredient.calories, Decimal('950.00'))
+        self.assertEqual(ingredient.estimated_cost, Decimal('0.63'))
+        self.assertIsNone(batch.recipe)
+
+    def test_recipe_detail_and_create_form_prefill_planned_ingredients(self):
+        planned = RecipeIngredient.objects.create(
+            recipe=self.recipe,
+            food_item=self.food_item,
+            quantity=Decimal('180'),
+            unit=FoodItem.GRAMS,
+            price_observation=self.price,
+        )
+
+        recipe_detail = self.client.get(reverse('recipe_detail', kwargs={'pk': self.recipe.pk}))
+        self.assertContains(recipe_detail, f"{reverse('meal_prep_create')}?recipe={self.recipe.pk}")
+
+        response = self.client.get(reverse('meal_prep_create'), {'recipe': self.recipe.pk})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'value="180.000"')
+        self.assertContains(response, f'value="{planned.food_item_id}" selected')
+        self.assertContains(response, f'value="{self.recipe.pk}" selected')
+
+    def test_load_recipe_round_trip_preserves_batch_fields_and_prefills_rows(self):
+        RecipeIngredient.objects.create(
+            recipe=self.recipe,
+            food_item=self.food_item,
+            quantity=Decimal('180'),
+            unit=FoodItem.GRAMS,
+            price_observation=self.price,
+        )
+        response = self.client.post(reverse('meal_prep_create'), {
+            'name': 'Cooked oats',
+            'recipe': str(self.recipe.pk),
+            'cooked_at': '2026-10-25T12:30',
+            'yield_quantity': '300',
+            'yield_unit': FoodItem.GRAMS,
+            'action': 'load_recipe',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'value="Cooked oats"')
+        self.assertContains(response, 'value="180.000"')
+        self.assertEqual(MealPrepBatch.objects.count(), 0)
+
+    def test_invalid_recipe_query_falls_back_to_direct_batch_form(self):
+        response = self.client.get(reverse('meal_prep_create'), {'recipe': 'not-a-number'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Create Meal Prep Batch')
+        self.assertEqual(len(response.context['formset'].forms), 1)
+
+    def test_add_and_remove_rows_use_post_round_trips(self):
+        add_data = self._batch_post_data(action='add_ingredient')
+        added = self.client.post(reverse('meal_prep_create'), add_data)
+        self.assertEqual(added.status_code, 200)
+        self.assertContains(added, 'name="ingredients-1-food_item"')
+        self.assertEqual(MealPrepBatch.objects.count(), 0)
+
+        remove_data = self._batch_post_data(
+            **{
+                'ingredients-TOTAL_FORMS': '2',
+                'ingredients-1-food_item': str(self.food_item.pk),
+                'ingredients-1-quantity': '50',
+                'ingredients-1-unit': FoodItem.GRAMS,
+                'ingredients-1-price_observation': str(self.price.pk),
+                'remove_index': '0',
+            },
+        )
+        removed = self.client.post(reverse('meal_prep_create'), remove_data)
+        self.assertEqual(removed.status_code, 200)
+        self.assertNotContains(removed, 'name="ingredients-0-food_item"')
+        self.assertContains(removed, 'name="ingredients-1-food_item"')
+        self.assertTrue(removed.context['formset'].forms[0]['DELETE'].value())
+        self.assertEqual(MealPrepBatch.objects.count(), 0)
+
+    def test_invalid_submission_preserves_values_and_empty_rows_are_rejected(self):
+        invalid = self.client.post(
+            reverse('meal_prep_create'),
+            self._batch_post_data(name='Still entered', yield_quantity='0'),
+        )
+        self.assertEqual(invalid.status_code, 200)
+        self.assertContains(invalid, 'value="Still entered"')
+        self.assertContains(invalid, 'value="0"')
+        self.assertEqual(MealPrepBatch.objects.count(), 0)
+
+        empty_data = self._batch_post_data(**{
+            'ingredients-0-food_item': '',
+            'ingredients-0-quantity': '',
+            'ingredients-0-unit': '',
+            'ingredients-0-price_observation': '',
+        })
+        empty = self.client.post(reverse('meal_prep_create'), empty_data)
+        self.assertEqual(empty.status_code, 200)
+        self.assertContains(empty, 'at least 1 form')
+        self.assertEqual(MealPrepBatch.objects.count(), 0)
+
+    def test_mixed_currency_service_error_preserves_submitted_ingredients(self):
+        milk = FoodItem.objects.create(
+            name='Milk',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.MILLILITRES,
+        )
+        milk_price = PriceObservation.objects.create(
+            food_item=milk,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.MILLILITRES,
+            paid_price=Decimal('1.50'),
+            currency='GBP',
+        )
+        data = self._batch_post_data(**{
+            'ingredients-TOTAL_FORMS': '2',
+            'ingredients-1-food_item': str(milk.pk),
+            'ingredients-1-quantity': '100',
+            'ingredients-1-unit': FoodItem.MILLILITRES,
+            'ingredients-1-price_observation': str(milk_price.pk),
+        })
+
+        response = self.client.post(reverse('meal_prep_create'), data)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'single currency')
+        self.assertContains(response, 'value="100"')
+        self.assertEqual(MealPrepBatch.objects.count(), 0)
+
+    def test_batch_detail_uses_historical_snapshots_and_is_read_only(self):
+        batch = create_meal_prep_batch(
+            name='Snapshot oats',
+            recipe=self.recipe,
+            yield_quantity=Decimal('400'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.food_item,
+                quantity=Decimal('250'),
+                unit=FoodItem.GRAMS,
+                price_observation=self.price,
+            )],
+        )
+        self.food_item.calories_per_100 = Decimal('100')
+        self.food_item.save()
+        self.recipe.name = 'Renamed recipe'
+        self.recipe.save()
+
+        response = self.client.get(reverse('meal_prep_detail', kwargs={'pk': batch.pk}))
+        self.assertContains(response, '950.00 kcal')
+        self.assertContains(response, 'Rolled Oats')
+        self.assertContains(response, 'Snapshot oats')
+        self.assertContains(response, 'Renamed recipe')
+        self.assertNotContains(response, 'Edit batch')
+        self.assertEqual(
+            self.client.post(reverse('meal_prep_detail', kwargs={'pk': batch.pk})).status_code,
+            405,
+        )
+
+    def test_batch_detail_marks_missing_snapshot_values_incomplete(self):
+        self.food_item.protein_per_100 = None
+        self.food_item.save()
+        self.price.delete()
+        batch = create_meal_prep_batch(
+            name='Incomplete oats',
+            yield_quantity=Decimal('300'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.food_item,
+                quantity=Decimal('100'),
+                unit=FoodItem.GRAMS,
+            )],
+        )
+
+        response = self.client.get(reverse('meal_prep_detail', kwargs={'pk': batch.pk}))
+
+        self.assertContains(response, 'Nutrition is incomplete')
+        self.assertContains(response, 'Cost is incomplete')
+        self.assertContains(response, 'Unknown')
+        self.assertContains(response, 'Incomplete')

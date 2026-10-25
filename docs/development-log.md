@@ -2,6 +2,45 @@
 
 This is the chronological record of meaningful development work on the Personal AI Homelab Platform. Entries are newest first. Design documents describe intended requirements and rationale; this log records work actually performed and verification evidence.
 
+## 2026-10-25 — Meal Prep Batch UI
+
+**Area:** Food / Meal Prep UI
+
+**Summary:**
+Added a server-rendered Meal Prep Batch list, direct and Recipe-started creation with editable actual ingredient rows, and read-only historical detail.
+
+**Completed:**
+
+- Added a batch list; creation from the Recipe detail action or directly; Recipe selection and an explicit “Load planned ingredients” POST action; editable actual rows; and a read-only detail page.
+- Add/remove ingredient rows use server-rendered POST round-trips without JavaScript. Existing PriceObservation selection rules apply; blank rows are ignored and at least one active ingredient is required.
+- Only final submission calls transactional `create_meal_prep_batch()`, which owns validation and snapshots. Read-only detail calls `calculate_batch_totals()` over stored snapshots and shows totals/completeness.
+- Added batch navigation and focused form/workflow coverage for price policy, units, invalid-value retention, mixed-currency rejection, Recipe prefill, row actions, and snapshot stability.
+
+**Technical decisions:**
+
+- Recipe planned rows can be copied into editable actual rows; selecting a Recipe alone does not persist ingredient rows. Interim POST actions only rebuild the form; final creation is the persistence boundary.
+- Price input selects existing observations; nutrition, cost, and provenance snapshots remain owned by `create_meal_prep_batch()`.
+- Completed batches are read-only and historical totals use stored snapshots. This UI slice made no schema changes or dependency additions.
+
+**Testing and verification:**
+
+- Reported implementation results, not rerun during this documentation sync: `python manage.py test apps.food` passed with 87 Food tests; Core + Food passed with 89 tests; Django check passed; `python manage.py makemigrations --check --dry-run` reported no changes; and `git diff --check` passed.
+- Browser smoke covered only the batch list and one-row create form. Broader browser-flow checks and desktop/mobile review remain outstanding.
+- No schema changes were made for the UI. The existing batch migration has **not** been applied to the development SQLite database.
+
+**Known issues / deferred work:**
+
+- Batch editing, deletion, recalculation, batch-backed `ConsumptionEntry`, and logging a batch as eaten remain deferred.
+- Portions/count units/conversions, inventory/purchase accounting, AI/API work, yield-based consumption scaling, and manual snapshot overrides remain deferred.
+
+**Next steps:**
+
+- Implement and verify batch-backed consumption as a separate Food slice.
+
+**Git status:**
+
+- No staging, commit, or push was performed during this documentation sync. Fresh staged-versus-unstaged state for the implementation could not be queried in this session.
+
 ### 2026-10-25 — Recipe Management UI
 **Area:** Food / Recipe UI
 

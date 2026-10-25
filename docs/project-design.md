@@ -200,7 +200,7 @@ The IDs below are useful for discussion and testing; they are not a complete spe
 
 ### Scope
 
-**First implemented domain, with additional work ongoing.** Food is a server-rendered Django app in the existing modular monolith. Its UI covers catalogue, consumption, and Recipe management; the data foundation also includes meal-prep batch snapshots. Meal Prep Batch UI and batch-backed consumption are not implemented.
+**First implemented domain, with additional work ongoing.** Food is a server-rendered Django app in the existing modular monolith. Its UI covers catalogue, consumption, Recipe management, and Meal Prep Batch listing, creation, and read-only historical detail. Batch-backed consumption is not implemented.
 
 The detailed, living specification is maintained in [docs/modules/food-design.md](modules/food-design.md). This document provides the wider platform architecture and principles; the module document records Food-specific requirements, decisions, open questions, milestones, and acceptance criteria.
 
@@ -215,7 +215,7 @@ The detailed, living specification is maintained in [docs/modules/food-design.md
 - `ConsumptionEntry` remains the unified consumption log, but it does not yet reference MealPrepBatch records.
 - Recipe and batch models/services use the current Django app, database, and service patterns. No worker, queue, AI runtime, MCP integration, external database, or separate service was added for this feature.
 
-Meal Prep Batch forms, views, templates, plan-to-batch copying workflows, batch-backed consumption integration, count-based portions, and arbitrary manual total overrides remain deferred.
+Batch editing/deletion/recalculation, batch-backed consumption integration, count-based portions, and arbitrary manual total overrides remain deferred. Recipe plans can be loaded into editable actual ingredient rows during batch creation.
 
 ### Candidate entities
 
@@ -1326,7 +1326,7 @@ Do not test destructive migrations or AI write tools against the only copy of re
 
 **Dependencies:** Core module conventions.
 
-**Current status:** The Food catalogue and consumption workflows are implemented. Recipe/RecipeIngredient models, dynamic recipe estimates, Recipe list/detail/edit and ingredient management UI, MealPrepBatch/BatchIngredient models, snapshot-based batch totals, and transactional batch creation are implemented. Meal Prep Batch UI, batch-backed consumption, exports, shopping lists, and AI query tools are not complete; the acceptance target below remains future work.
+**Current status:** The Food catalogue and consumption workflows are implemented. Recipe/RecipeIngredient models, dynamic recipe estimates, Recipe list/detail/edit and ingredient management UI, MealPrepBatch/BatchIngredient models, snapshot-based batch totals, transactional batch creation, and Meal Prep list/direct-or-Recipe-prefilled create/read-only detail UI are implemented. Batch-backed consumption, exports, shopping lists, and AI query tools are not complete; the broader acceptance target below remains future work.
 
 **Suggested deliverables:**
 
@@ -1619,6 +1619,7 @@ This table is a summary. Important decisions should later receive individual fil
 | 0.1.0 | 2026-10-11 | Initial living design covering platform vision, modules, architecture alternatives, provisional hybrid architecture, AI/tool design, jobs, security, hardware, and phased roadmap. |
 | 0.2.0 | 2026-10-25 | Recorded the implemented Food recipe and meal-prep data foundation while retaining the provisional status of platform-wide architecture and future workflows. |
 | 0.3.0 | 2026-10-25 | Recorded Recipe list, edit, ingredient-management, and dynamic-estimate UI; Meal Prep Batch UI and batch-backed consumption remain deferred. |
+| 0.4.0 | 2026-10-25 | Recorded Meal Prep Batch list, direct/Recipe-prefilled creation, and snapshot-based read-only detail; batch-backed consumption remains deferred. |
 
 ## 23.2 Experiments and findings
 
@@ -1808,7 +1809,7 @@ The best provisional starting direction is:
 # 29. Next practical steps toward a working prototype
 
 1. Continue recording accepted architectural decisions in ADRs; the repository and living design document already exist.
-2. Complete the Meal Prep Batch forms, views, and templates using the implemented Food data foundation.
+2. Completed: add Meal Prep Batch list, creation, and read-only detail using the implemented Food data foundation.
 3. Add batch-backed `ConsumptionEntry` creation using the batch yield unit and preserve consumption snapshots.
 4. Verify the recipe, batch, and consumption workflows with focused tests and manual desktop/mobile review.
 5. Run the documented Phase 0 model and video experiments before selecting AI, queue, or video-framework technologies.

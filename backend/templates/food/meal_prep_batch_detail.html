@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ batch.name }} | Meal Prep{% endblock %}
+
+{% block content %}
+  {% include 'food/_navigation.html' %}
+  <section class="hero">
+    <h1>{{ batch.name }}</h1>
+    <p>
+      {% if batch.recipe %}Source Recipe: {{ batch.recipe.name }}{% else %}Created directly{% endif %}
+      · Cooked {{ batch.cooked_at|date:'j F Y, H:i' }} · Yield {{ batch.yield_quantity }} {{ batch.yield_unit }}
+    </p>
+    <div class="actions">
+      <a href="{% url 'meal_prep_list' %}" class="button secondary">Back to Meal Prep</a>
+    </div>
+  </section>
+
+  <section class="page-shell">
+    <h2>Historical totals</h2>
+    {% if totals_error %}
+      <p class="warning" role="status">Totals cannot be combined because the stored batch contains conflicting currencies.</p>
+    {% elif totals %}
+      {% if not totals.nutrition_complete or not totals.cost_complete %}
+        <p class="warning" role="status">
+          {% if not totals.nutrition_complete %}Nutrition is incomplete for one or more ingredients. {% endif %}
+          {% if not totals.cost_complete %}Cost is incomplete for one or more ingredients.{% endif %}
+        </p>
+      {% endif %}
+      <div class="summary-grid" aria-label="Historical batch totals">
+        <article class="summary-card"><span>Calories</span><strong>{% if totals.calories_complete %}{{ totals.calories }} kcal{% else %}Incomplete{% endif %}</strong></article>
+        <article class="summary-card"><span>Protein</span><strong>{% if totals.protein_complete %}{{ totals.protein }} g{% else %}Incomplete{% endif %}</strong></article>
+        <article class="summary-card"><span>Carbohydrates</span><strong>{% if totals.carbohydrates_complete %}{{ totals.carbohydrates }} g{% else %}Incomplete{% endif %}</strong></article>
+        <article class="summary-card"><span>Fat</span><strong>{% if totals.fat_complete %}{{ totals.fat }} g{% else %}Incomplete{% endif %}</strong></article>
+        <article class="summary-card"><span>Historical cost{% if totals.currency %} ({{ totals.currency }}){% endif %}</span><strong>{% if totals.cost_complete %}{{ totals.estimated_cost }} {{ totals.currency }}{% else %}Incomplete{% endif %}</strong></article>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="page-shell" style="margin-top: 1.25rem;">
+    <h2>Actual ingredients</h2>
+    <div style="overflow-x: auto;">
+      <table class="data-table">
+        <thead>
+          <tr><th>Food item at cooking</th><th>Actual quantity</th><th>Calories</th><th>Protein</th><th>Carbohydrates</th><th>Fat</th><th>Historical cost</th><th>Sources</th></tr>
+        </thead>
+        <tbody>
+          {% for ingredient in ingredients %}
+            <tr>
+              <td>{{ ingredient.food_item_name_snapshot }}</td>
+              <td>{{ ingredient.quantity }} {{ ingredient.unit }}</td>
+              <td>{% if ingredient.calories is not None %}{{ ingredient.calories }} kcal{% else %}Unknown{% endif %}</td>
+              <td>{% if ingredient.protein is not None %}{{ ingredient.protein }} g{% else %}Unknown{% endif %}</td>
+              <td>{% if ingredient.carbohydrates is not None %}{{ ingredient.carbohydrates }} g{% else %}Unknown{% endif %}</td>
+              <td>{% if ingredient.fat is not None %}{{ ingredient.fat }} g{% else %}Unknown{% endif %}</td>
+              <td>{% if ingredient.estimated_cost is not None %}{{ ingredient.estimated_cost }} {{ ingredient.currency }}{% else %}Unknown{% endif %}</td>
+              <td>Nutrition: {{ ingredient.nutrition_source|default:'Unknown' }}<br>Cost: {{ ingredient.cost_source|default:'Unknown' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

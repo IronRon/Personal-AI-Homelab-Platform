@@ -52,7 +52,7 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 
 ### Follow-on: Recipe and meal-prep data foundation
 
-**Status: Data foundation and Recipe UI implemented; Meal Prep Batch UI remains deferred.** This is follow-on work beyond the original basic tracking milestone above.
+**Status: Data foundation, Recipe UI, and Meal Prep Batch list/create/read-only detail implemented.** This is follow-on work beyond the original basic tracking milestone above.
 
 - Added `Recipe` and `RecipeIngredient` for reusable plans using existing `FoodItem` records. Recipe estimates use current nutrition and price data and follow the existing zero/one/multiple price-selection policy.
 - Added `MealPrepBatch` and `BatchIngredient` for actual cooking events and actual ingredient inputs. Ingredient names, nutrient contributions, allocated costs, currency, and provenance are snapshotted when the batch is created; batch totals read snapshots only.
@@ -69,7 +69,17 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 - Reported verification: `python manage.py check` passed; `python manage.py makemigrations --check --dry-run` reported no changes; `python manage.py test apps.food` passed with 72 tests; the full suite passed with 74 tests; `git diff --check` passed.
 - No Meal Prep Batch forms/views/templates, batch creation through the browser, batch-backed consumption, AI, APIs, or new infrastructure were added. No model or migration changes were needed for the Recipe UI.
 
-Next work is the Meal Prep Batch UI and, later, integrating batch yield into the unified `ConsumptionEntry` flow. Count-based portions, unit conversion, inventory, purchase accounting, and arbitrary manual nutrition/cost overrides remain deferred.
+### Follow-on: Meal Prep Batch UI
+
+**Status: Implemented on 2026-10-25.** This UI work adds no schema changes to the existing Recipe/batch data foundation.
+
+- Added the batch list, direct creation, Recipe-detail “Create batch” entry point, Recipe selection, and explicit loading of planned Recipe ingredients into editable actual rows.
+- Ingredient add/remove and Recipe-load actions are server-rendered POST round-trips without JavaScript; these interim submissions do not persist a batch. Existing PriceObservation selection rules apply.
+- Final creation delegates validation and snapshot creation to transactional `create_meal_prep_batch()`. Read-only detail totals come from stored snapshots through `calculate_batch_totals()`.
+- Reported verification for this slice (not rerun during this documentation sync): 87 Food tests; 89 Core + Food tests; Django check passed; `makemigrations --check --dry-run` reported no changes; `git diff --check` passed. Browser smoke covered only the list and one-row create form. Desktop/mobile review remains outstanding.
+- The existing batch migration was not applied to the development SQLite database.
+
+Next work is batch-backed consumption as a separate slice. Batch editing/deletion/recalculation, batch-backed `ConsumptionEntry`, logging a batch as eaten, portions/count units/conversions, inventory/purchase accounting, and AI/API integration remain deferred.
 
 - `README.md` — existing setup and project structure; update only if the implemented workflow makes the development instructions materially stale.
 - `backend/apps/food/models.py` — minimum persistent Food models and validation.

@@ -1,14 +1,131 @@
 from django import forms
+from django.forms import formset_factory
 from django.utils import timezone
 
 from .models import (
     ConsumptionEntry,
     FoodItem,
+    MealPrepBatch,
     PriceObservation,
     Recipe,
     RecipeIngredient,
 )
 from .services.calculations import select_price_observation
+
+
+class MealPrepBatchForm(forms.ModelForm):
+    cooked_at = forms.DateTimeField(
+        input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M',
+            attrs={'type': 'datetime-local'},
+        ),
+    )
+
+    class Meta:
+        model = MealPrepBatch
+        fields = ['name', 'recipe', 'cooked_at', 'yield_quantity', 'yield_unit']
+        labels = {
+            'name': 'Batch name',
+            'recipe': 'Source Recipe',
+            'cooked_at': 'Cooked date and time',
+            'yield_quantity': 'Final yield',
+            'yield_unit': 'Yield unit',
+        }
+        help_texts = {
+            'recipe': 'Optional. Planned ingredients can be loaded and then adjusted below.',
+            'yield_quantity': 'Enter the finished batch weight or volume.',
+        }
+        widgets = {
+            'yield_quantity': forms.NumberInput(attrs={'step': '0.001', 'min': '0.001'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['recipe'].required = False
+        self.fields['recipe'].queryset = Recipe.objects.order_by('name', 'id')
+        if not self.is_bound and not self.initial.get('cooked_at'):
+            self.initial['cooked_at'] = timezone.localtime(
+                timezone.now(),
+            ).strftime('%Y-%m-%dT%H:%M')
+
+
+class BatchIngredientForm(forms.Form):
+    """Collect actual batch inputs; snapshot values are created by the batch service."""
+
+    food_item = forms.ModelChoiceField(
+        queryset=FoodItem.objects.order_by('name', 'brand'),
+        required=False,
+        label='Food item',
+        widget=forms.Select(attrs={'aria-label': 'Food item'}),
+    )
+    quantity = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=3,
+        min_value=0.001,
+        label='Actual quantity',
+        widget=forms.NumberInput(attrs={
+            'step': '0.001',
+            'min': '0.001',
+            'aria-label': 'Actual quantity',
+        }),
+    )
+    unit = forms.ChoiceField(
+        choices=FoodItem.BASIS_UNITS,
+        required=False,
+        label='Unit',
+        widget=forms.Select(attrs={'aria-label': 'Unit'}),
+    )
+    price_observation = forms.ModelChoiceField(
+        queryset=PriceObservation.objects.select_related('food_item').order_by(
+            '-observed_at', '-id',
+        ),
+        required=False,
+        empty_label='No price / unknown cost',
+        label='Price observation',
+        widget=forms.Select(attrs={'aria-label': 'Price observation'}),
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        food_item = cleaned_data.get('food_item')
+        quantity = cleaned_data.get('quantity')
+        unit = cleaned_data.get('unit')
+        price_observation = cleaned_data.get('price_observation')
+        has_other_values = any((quantity, unit, price_observation))
+
+        if food_item is None:
+            if has_other_values:
+                self.add_error('food_item', 'Choose a food item for this ingredient row.')
+            return cleaned_data
+
+        if quantity is None:
+            self.add_error('quantity', 'Enter a positive actual quantity.')
+        if not unit:
+            self.add_error('unit', 'Choose the ingredient unit.')
+        elif unit != food_item.nutrition_basis_unit:
+            self.add_error('unit', 'Unit must match the selected food item nutrition basis.')
+
+        if unit == food_item.nutrition_basis_unit:
+            try:
+                cleaned_data['price_observation'] = select_price_observation(
+                    food_item,
+                    price_observation,
+                )
+            except ValueError as error:
+                self.add_error('price_observation', str(error))
+
+        return cleaned_data
+
+
+BatchIngredientFormSet = formset_factory(
+    BatchIngredientForm,
+    extra=0,
+    can_delete=True,
+    min_num=1,
+    validate_min=True,
+)
 
 
 class RecipeForm(forms.ModelForm):

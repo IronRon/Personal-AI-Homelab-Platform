@@ -6,10 +6,11 @@
   {% include 'food/_navigation.html' %}
   <section class="hero">
     <h1>{{ recipe.name }}</h1>
-    <p>A Recipe is a reusable plan. Nutrition and cost are current estimates based on catalogue data and may change when catalogue values change. A future Meal Prep Batch will preserve the values used when it was cooked; batch creation is not included here.</p>
+    <p>Recipe nutrition and cost are current estimates based on catalogue data. Creating a Meal Prep Batch records actual ingredients and preserves their historical nutrition and cost snapshots.</p>
     <div class="actions">
       <a href="{% url 'recipe_edit' recipe.pk %}" class="button">Edit Recipe</a>
       <a href="{% url 'recipe_ingredient_create' recipe.pk %}" class="button secondary">Add ingredient</a>
+      <a href="{% url 'meal_prep_create' %}?recipe={{ recipe.pk }}" class="button secondary">Create batch</a>
       <a href="{% url 'recipe_list' %}" class="button secondary">Back to Recipes</a>
     </div>
   </section>
