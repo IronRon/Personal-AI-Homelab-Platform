@@ -2,6 +2,36 @@
 
 This is the chronological record of meaningful development work on the Personal AI Homelab Platform. Entries are newest first. Design documents describe intended requirements and rationale; this log records work actually performed and verification evidence.
 
+### 2026-10-25 — Recipe Management UI
+**Area:** Food / Recipe UI
+
+**Summary:**
+Added server-rendered Recipe management and planned ingredient workflows on top of the existing Food data foundation.
+
+**Completed:**
+
+- Added Recipe list, metadata create/edit, detail, and planned ingredient create/edit/POST-only removal routes and pages, plus a Recipes link in Food navigation.
+- Recipe detail calls the existing estimate service. Estimates use current FoodItem and PriceObservation values, show completeness independently for calories, protein, carbohydrates, fat, and cost, and do not present incomplete subtotals as complete totals.
+- Added server-rendered price choices using the existing zero/one/multiple observation policy, Recipe-parent scoping for ingredient updates/removal, and friendly handling when catalogue edits make a stored ingredient selection invalid.
+- Added focused Recipe UI tests for list/detail, create/edit, ingredient CRUD and validation, price policy, live estimate updates, missing data, mixed currencies, stale catalogue data, and absence of batch/consumption side effects.
+
+**Technical decisions:**
+
+- Recipe estimates remain dynamic; editing Recipe metadata or planned ingredients does not create batch snapshots.
+- Views delegate nutrition and cost calculations to `calculate_recipe_estimate()`.
+- RecipeIngredient removal is POST-only and lookup is constrained to its parent Recipe.
+- No schema changes or migration were needed.
+
+**Testing and verification:**
+
+- Reported for the Recipe UI implementation: `python manage.py check` passed; `python manage.py makemigrations --check --dry-run` reported no changes; `python manage.py test apps.food` passed with 72 tests; the full Django suite passed with 74 tests; and `git diff --check` passed.
+- These implementation checks were not rerun during this documentation-sync pass.
+
+**Known issues / deferred work:**
+
+- Meal Prep Batch forms, views, templates, browser-based batch creation, and batch-backed `ConsumptionEntry` remain future work.
+- Count-based portions, servings, unit conversion, inventory, purchase accounting, arbitrary nutrition/cost overrides, AI, and APIs remain deferred.
+
 ### 2026-10-25 — Recipe and Meal-Prep Data Foundation
 **Area:** Food / Data Layer
 

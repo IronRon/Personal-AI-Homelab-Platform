@@ -11,6 +11,25 @@ urlpatterns = [
     path('history/', views.food_history, name='food_history'),
     path('consumption/<int:pk>/edit/', views.consumption_edit, name='consumption_edit'),
     path('consumption/<int:pk>/delete/', views.consumption_delete, name='consumption_delete'),
+    path('recipes/', views.recipe_list, name='recipe_list'),
+    path('recipes/new/', views.recipe_create, name='recipe_create'),
+    path('recipes/<int:pk>/', views.recipe_detail, name='recipe_detail'),
+    path('recipes/<int:pk>/edit/', views.recipe_edit, name='recipe_edit'),
+    path(
+        'recipes/<int:recipe_pk>/ingredients/new/',
+        views.recipe_ingredient_create,
+        name='recipe_ingredient_create',
+    ),
+    path(
+        'recipes/<int:recipe_pk>/ingredients/<int:pk>/edit/',
+        views.recipe_ingredient_edit,
+        name='recipe_ingredient_edit',
+    ),
+    path(
+        'recipes/<int:recipe_pk>/ingredients/<int:pk>/delete/',
+        views.recipe_ingredient_delete,
+        name='recipe_ingredient_delete',
+    ),
     path('<int:pk>/', views.food_item_detail, name='food_item_detail'),
     path('<int:pk>/edit/', views.food_item_edit, name='food_item_edit'),
     path(

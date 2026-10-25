@@ -58,6 +58,7 @@ Update only documents affected by the implementation.
 
 Use:
 
+- Discover the actual documentation location, then update the relevant file
 - README.md for concise project status and onboarding
 - docs/development-log.md for dated implementation and verification history
 - docs/project-design.md for architecture and cross-feature decisions

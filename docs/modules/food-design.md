@@ -1,10 +1,10 @@
 # Food Module Design
 
 > **Document status:** Living module specification
-> **Version:** 0.6.0
+> **Version:** 0.7.0
 > **Date:** 2026-10-25
 > **Design status:** Approved starting point with accepted recipe/batch data-foundation decisions
-> **Implementation status:** Food tracking phases 1-4 and recipe/batch data foundation implemented; recipe/batch UI and consumption integration, targets, and AI remain deferred
+> **Implementation status:** Food tracking phases 1-4, recipe/batch data foundation, and Recipe UI implemented; Meal Prep Batch UI and consumption integration, targets, and AI remain deferred
 >
 > This document records the agreed starting design from the Food module discovery interview. It should be updated as implementation and real-world use expose better decisions. It does not override the wider guidance in [docs/project-design.md](../project-design.md).
 
@@ -125,14 +125,17 @@ The current batch-creation service accepts actual ingredient inputs and an optio
 
 ### 4.4 Recipe and meal preparation
 
-**Designed workflow; not yet available through the application UI.** The model and calculation foundation exists, but forms, views, templates, and batch-backed consumption are deferred.
+**Recipe workflow implemented; Meal Prep workflow remains designed but unavailable through the UI.** Recipe list/create/edit/detail and planned ingredient management are available. Batch models and services exist, but browser-based batch creation and batch-backed consumption are deferred.
 
-1. Create a reusable recipe with ingredients, quantities, units, and instructions.
-2. Start a meal-prep batch from the recipe or create one directly.
-3. Record actual ingredients and quantities used.
-4. Record actual yield or portions produced.
-5. Review calculated cost and nutrition.
-6. Create portions that can be referenced by consumption entries.
+1. Open Recipes and create a reusable plan with a name and optional instructions.
+2. Add or edit planned FoodItems and quantities, then review the current completeness-aware nutrition and cost estimate.
+
+The following Meal Prep and consumption steps remain planned, not available in the UI:
+
+1. Start a batch from the recipe or create one directly.
+2. Record actual ingredients and quantities used.
+3. Record actual yield and review the historical batch totals.
+4. Create a future consumption entry from an amount of the batch.
 
 ### 4.5 Analysis
 
@@ -209,7 +212,7 @@ Entries may be saved with unknown nutrition or cost. Reports should calculate kn
 - **History:** consumption records, date filtering, correction, and basic trends.
 - **Catalog:** ingredients, products, nutrition profiles, price observations, and provenance.
 
-Recipe and meal-prep screens and batch-backed consumption are the next user-facing vertical slice. They are not part of the implemented data foundation.
+Recipe list/create/edit/detail and ingredient management screens are implemented. Meal Prep Batch screens and batch-backed consumption are the next user-facing vertical slice.
 
 The UI should be mobile-friendly and should support common actions through normal forms and buttons without requiring chat.
 
@@ -271,7 +274,7 @@ The MVP does not include live AI integration, OCR, external nutrition APIs, CSV 
 
 ## 10. Future backlog
 
-- Recipe and batch forms, views, templates, and user workflows.
+- Meal Prep Batch forms, views, templates, and user workflows.
 - Copying a recipe plan into editable actual batch ingredient inputs.
 - Batch-backed consumption entries and yield-based nutrition/cost scaling.
 - Count-based portions, servings, and unit conversions.
@@ -323,12 +326,14 @@ Resolved for the data foundation: recipes may use either FoodItem type; batch yi
 - [x] Add Recipe, RecipeIngredient, MealPrepBatch, and BatchIngredient data models and migration.
 - [x] Add dynamic recipe estimates, snapshot-based batch totals, and transactional batch creation.
 - [x] Add focused model, calculation, snapshot-stability, currency, and service tests.
-- [ ] Add recipe and meal-prep forms, views, templates, and user workflows.
+- [x] Add Recipe list/create/edit/detail UI and planned ingredient create/edit/remove workflows.
+- [x] Show current Recipe estimates with independent nutrition/cost completeness and safe invalid-data feedback.
+- [ ] Add Meal Prep Batch forms, views, templates, and user workflows.
 - [ ] Add batch-backed ConsumptionEntry logging and yield-based scaling.
 - [ ] Expose validated domain services for future AI tools.
 - [ ] Add AI tools only after deterministic workflows are reliable.
 
-Milestone ordering should be revisited if the meal-preparation prioritisation question is answered differently.
+The next Food UI milestone is the Meal Prep Batch workflow; its sequencing can be revisited independently of the completed Recipe UI.
 
 ## 14. Acceptance criteria
 
@@ -337,21 +342,23 @@ Milestone ordering should be revisited if the meal-preparation prioritisation qu
 - [x] A user can log a measured catalogue consumption and view daily nutrition/cost summaries.
 - [x] Unknown consumption and estimate values are preserved and represented by completeness state.
 - [x] Existing ConsumptionEntry snapshots remain stable after catalogue edits.
+- [x] Recipe UI supports listing, create/edit/detail, planned ingredient management, and completeness-aware estimates.
 - [ ] Optional targets can be compared with daily intake.
 - [ ] Comprehensive cost analysis and purchase accounting are available.
 - [ ] All primary workflows have been manually verified on desktop and mobile layouts.
 - [x] Recipe estimates use current catalogue data and expose independent completeness results.
 - [x] MealPrepBatch ingredient contributions are snapshotted and batch totals do not reread catalogue or Recipe data.
 - [x] Positive quantities/yield, unit matching, price ownership, deletion behavior, and single-currency batch costs are validated and tested.
-- [ ] Recipe and batch workflows are available through the UI, including batch-backed consumption.
+- [ ] Meal Prep Batch workflows are available through the UI.
+- [ ] ConsumptionEntry can log an amount from a MealPrepBatch.
 - [x] Domain calculations are tested independently of AI.
 - [ ] Future AI tools can call shared services without direct database access.
 
 ## 15. Current implementation status
 
-**Implemented:** Phases 1-4 provide `FoodItem`, `PriceObservation`, and `ConsumptionEntry`, catalogue management, consumption logging, historical snapshots, Today/History, navigation, and focused automated tests. The recipe/batch data foundation adds `Recipe`, `RecipeIngredient`, `MealPrepBatch`, and `BatchIngredient`, dynamic recipe estimates, snapshot-based batch totals, and transactional batch creation. Its migration is generated; the development database has not been migrated as part of that implementation. The configured reporting timezone is `Europe/Dublin`.
+**Implemented:** Phases 1-4 provide `FoodItem`, `PriceObservation`, and `ConsumptionEntry`, catalogue management, consumption logging, historical snapshots, Today/History, navigation, and focused automated tests. The recipe/batch data foundation adds `Recipe`, `RecipeIngredient`, `MealPrepBatch`, and `BatchIngredient`, dynamic recipe estimates, snapshot-based batch totals, and transactional batch creation. The Recipe UI now supports list, metadata create/edit, detail, planned ingredient create/edit/POST-only delete, and current completeness-aware estimates. No database changes were needed for the Recipe UI. The data-foundation migration is generated; the development database was not migrated as part of that implementation. The configured reporting timezone is `Europe/Dublin`.
 
-**Planned or deferred:** Recipe and batch forms/views/templates, copying recipe rows into actual batch inputs, batch-backed ConsumptionEntry logging, yield-based scaling for consumed batch quantities, daily targets, advanced cost analysis, and AI tool integrations are not implemented. Arbitrary manual nutrition/cost overrides, count-based portions and servings, conversions, inventory, purchase accounting, and external data sources remain deferred.
+**Planned or deferred:** Meal Prep Batch forms/views/templates, browser-based batch creation, copying recipe rows into actual batch inputs, batch-backed ConsumptionEntry logging, yield-based scaling for consumed batch quantities, daily targets, advanced cost analysis, and AI tool integrations are not implemented. Arbitrary manual nutrition/cost overrides, count-based portions and servings, conversions, inventory, purchase accounting, and external data sources remain deferred.
 
 This status should be updated as milestones are completed. Planned requirements must not be described as implemented until they exist in working code and have been tested.
 
@@ -365,3 +372,4 @@ This status should be updated as milestones are completed. Planned requirements 
 | 0.4.0 | 2026-10-11 | Recorded Phase 3 consumption services, snapshot creation/recalculation, Today/history pages, deletion, timezone aggregation, and tests. |
 | 0.5.0 | 2026-10-11 | Recorded Phase 4 navigation, user guidance, outside-meal terminology, responsive UI improvements, and verification. |
 | 0.6.0 | 2026-10-25 | Recorded the recipe/meal-prep data foundation, dynamic recipe estimates, historical batch snapshots, validation, and deferred UI/consumption workflows. |
+| 0.7.0 | 2026-10-25 | Recorded Recipe list/detail/edit and planned ingredient UI, completeness-aware live estimates, and the still-deferred Meal Prep Batch UI. |

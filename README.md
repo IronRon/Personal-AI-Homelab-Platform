@@ -113,7 +113,7 @@ The wider design document includes a provisional target structure for future app
 
 ## Current status
 
-The Django control plane currently contains a working Core home page and Food catalogue, consumption tracking, and history workflows. Recipe estimates and meal-prep batch data foundations are implemented, including historical ingredient snapshots and calculation services. Recipe/batch screens, batch-backed consumption logging, and other platform modules remain future work. Architecture choices not explicitly accepted in the design documents remain provisional.
+The Django control plane currently contains a working Core home page and Food catalogue, consumption tracking, history, and Recipe management workflows. Recipe estimates and meal-prep batch data foundations are implemented, including historical ingredient snapshots and calculation services. Meal Prep Batch screens, batch-backed consumption logging, and other platform modules remain future work. Architecture choices not explicitly accepted in the design documents remain provisional.
 
 ## Development setup
 

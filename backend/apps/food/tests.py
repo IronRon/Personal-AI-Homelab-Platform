@@ -8,7 +8,13 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from .forms import ConsumptionEntryForm, FoodItemForm, PriceObservationForm
+from .forms import (
+    ConsumptionEntryForm,
+    FoodItemForm,
+    PriceObservationForm,
+    RecipeForm,
+    RecipeIngredientForm,
+)
 from .models import (
     BatchIngredient,
     ConsumptionEntry,
@@ -1345,3 +1351,359 @@ class MealPrepServiceTests(TestCase):
 
         self.assertEqual(MealPrepBatch.objects.count(), 0)
         self.assertEqual(BatchIngredient.objects.count(), 0)
+
+
+class RecipeWorkflowTests(TestCase):
+    def setUp(self):
+        self.food_item = FoodItem.objects.create(
+            name='Rolled Oats',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+            calories_per_100=Decimal('380'),
+            protein_per_100=Decimal('13.20'),
+            carbohydrates_per_100=Decimal('67.00'),
+            fat_per_100=Decimal('6.50'),
+            nutrition_source='label',
+        )
+        self.price = PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('2.50'),
+            currency='EUR',
+            source='shop',
+        )
+        self.recipe = Recipe.objects.create(
+            name='Overnight oats',
+            instructions='Mix and chill overnight.',
+        )
+
+    def _ingredient_post_data(self, **overrides):
+        data = {
+            'food_item': self.food_item.pk,
+            'quantity': '250',
+            'unit': FoodItem.GRAMS,
+            'price_observation': str(self.price.pk),
+        }
+        data.update(overrides)
+        return data
+
+    def test_recipe_list_empty_state_and_existing_recipes(self):
+        self.recipe.delete()
+        empty_response = self.client.get(reverse('recipe_list'))
+
+        self.assertEqual(empty_response.status_code, 200)
+        self.assertContains(empty_response, 'No recipes yet')
+        self.assertContains(empty_response, reverse('recipe_create'))
+
+        Recipe.objects.create(name='Overnight oats')
+        other_recipe = Recipe.objects.create(name='Apple porridge')
+        response = self.client.get(reverse('recipe_list'))
+
+        self.assertContains(response, 'Apple porridge')
+        self.assertContains(response, 'Overnight oats')
+        self.assertLess(
+            response.content.index(b'Apple porridge'),
+            response.content.index(b'Overnight oats'),
+        )
+        self.assertIsNotNone(other_recipe.pk)
+
+    def test_recipe_navigation_is_present(self):
+        response = self.client.get(reverse('catalogue'))
+
+        self.assertContains(response, 'Recipes')
+        self.assertContains(response, reverse('recipe_list'))
+
+    def test_recipe_create_invalid_and_valid_submission(self):
+        invalid_response = self.client.post(reverse('recipe_create'), {
+            'name': '',
+            'instructions': 'Some notes',
+        })
+
+        self.assertEqual(invalid_response.status_code, 200)
+        self.assertContains(invalid_response, 'This field is required.')
+        self.assertFalse(Recipe.objects.filter(instructions='Some notes').exists())
+
+        response = self.client.post(reverse('recipe_create'), {
+            'name': 'Apple porridge',
+            'instructions': 'Cook gently.',
+        })
+
+        recipe = Recipe.objects.get(name='Apple porridge')
+        self.assertRedirects(response, reverse('recipe_detail', kwargs={'pk': recipe.pk}))
+        self.assertContains(self.client.get(response.url), 'Cook gently.')
+
+    def test_recipe_edit_updates_metadata_and_redirects_to_detail(self):
+        response = self.client.post(
+            reverse('recipe_edit', kwargs={'pk': self.recipe.pk}),
+            {
+                'name': 'Updated oats',
+                'instructions': 'Add fruit before serving.',
+            },
+        )
+
+        self.assertRedirects(response, reverse('recipe_detail', kwargs={'pk': self.recipe.pk}))
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.name, 'Updated oats')
+        self.assertEqual(self.recipe.instructions, 'Add fruit before serving.')
+
+    def test_recipe_detail_empty_state_and_instructions(self):
+        response = self.client.get(reverse('recipe_detail', kwargs={'pk': self.recipe.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Mix and chill overnight.')
+        self.assertContains(response, 'This recipe has no planned ingredients yet')
+        self.assertContains(response, 'Add at least one to see its estimate')
+        self.assertNotContains(response, 'Create batch')
+
+    def test_recipe_ingredient_create_and_detail_estimate(self):
+        response = self.client.post(
+            reverse('recipe_ingredient_create', kwargs={'recipe_pk': self.recipe.pk}),
+            self._ingredient_post_data(),
+        )
+
+        ingredient = self.recipe.ingredients.get()
+        self.assertRedirects(response, reverse('recipe_detail', kwargs={'pk': self.recipe.pk}))
+        detail = self.client.get(response.url)
+        self.assertContains(detail, 'Rolled Oats')
+        self.assertContains(detail, '250.000 g')
+        self.assertContains(detail, '950.00 kcal')
+        self.assertContains(detail, '33.00 g')
+        self.assertContains(detail, '0.63 EUR')
+        self.assertContains(detail, 'current estimates based on catalogue data')
+        self.assertIsNotNone(ingredient.pk)
+        self.assertEqual(MealPrepBatch.objects.count(), 0)
+        self.assertEqual(ConsumptionEntry.objects.count(), 0)
+
+    def test_recipe_estimate_refreshes_from_current_catalogue_values(self):
+        RecipeIngredient.objects.create(
+            recipe=self.recipe,
+            food_item=self.food_item,
+            quantity=Decimal('250'),
+            unit=FoodItem.GRAMS,
+            price_observation=self.price,
+        )
+
+        first_response = self.client.get(reverse('recipe_detail', kwargs={'pk': self.recipe.pk}))
+        self.assertContains(first_response, '950.00 kcal')
+        self.assertContains(first_response, '0.63 EUR')
+
+        self.food_item.calories_per_100 = Decimal('400')
+        self.food_item.save()
+        self.price.paid_price = Decimal('4.00')
+        self.price.save()
+
+        updated_response = self.client.get(reverse('recipe_detail', kwargs={'pk': self.recipe.pk}))
+        self.assertContains(updated_response, '1000.00 kcal')
+        self.assertContains(updated_response, '1.00 EUR')
+
+    def test_recipe_ingredient_edit_updates_planned_values(self):
+        ingredient = RecipeIngredient.objects.create(
+            recipe=self.recipe,
+            food_item=self.food_item,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            price_observation=self.price,
+        )
+
+        response = self.client.post(
+            reverse(
+                'recipe_ingredient_edit',
+                kwargs={'recipe_pk': self.recipe.pk, 'pk': ingredient.pk},
+            ),
+            self._ingredient_post_data(quantity='300'),
+        )
+
+        self.assertRedirects(response, reverse('recipe_detail', kwargs={'pk': self.recipe.pk}))
+        ingredient.refresh_from_db()
+        self.assertEqual(ingredient.quantity, Decimal('300.000'))
+
+    def test_recipe_ingredient_delete_is_post_only_and_scoped_to_recipe(self):
+        other_recipe = Recipe.objects.create(name='Other recipe')
+        ingredient = RecipeIngredient.objects.create(
+            recipe=self.recipe,
+            food_item=self.food_item,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+        )
+        delete_url = reverse(
+            'recipe_ingredient_delete',
+            kwargs={'recipe_pk': self.recipe.pk, 'pk': ingredient.pk},
+        )
+
+        get_response = self.client.get(delete_url)
+        self.assertEqual(get_response.status_code, 405)
+        self.assertTrue(RecipeIngredient.objects.filter(pk=ingredient.pk).exists())
+
+        wrong_recipe_edit = self.client.get(reverse(
+            'recipe_ingredient_edit',
+            kwargs={'recipe_pk': other_recipe.pk, 'pk': ingredient.pk},
+        ))
+        self.assertEqual(wrong_recipe_edit.status_code, 404)
+
+        wrong_recipe_delete = self.client.post(reverse(
+            'recipe_ingredient_delete',
+            kwargs={'recipe_pk': other_recipe.pk, 'pk': ingredient.pk},
+        ))
+        self.assertEqual(wrong_recipe_delete.status_code, 404)
+        self.assertTrue(RecipeIngredient.objects.filter(pk=ingredient.pk).exists())
+
+        response = self.client.post(delete_url)
+        self.assertRedirects(response, reverse('recipe_detail', kwargs={'pk': self.recipe.pk}))
+        self.assertFalse(RecipeIngredient.objects.filter(pk=ingredient.pk).exists())
+
+    def test_recipe_ingredient_form_rejects_quantity_unit_and_price_mismatch(self):
+        invalid_quantity = RecipeIngredientForm(data=self._ingredient_post_data(quantity='0'))
+        self.assertFalse(invalid_quantity.is_valid())
+        self.assertIn('quantity', invalid_quantity.errors)
+
+        invalid_unit = RecipeIngredientForm(data=self._ingredient_post_data(unit=FoodItem.MILLILITRES))
+        self.assertFalse(invalid_unit.is_valid())
+        self.assertIn('unit', invalid_unit.errors)
+
+        unsupported_unit = RecipeIngredientForm(data=self._ingredient_post_data(unit='oz'))
+        self.assertFalse(unsupported_unit.is_valid())
+        self.assertIn('unit', unsupported_unit.errors)
+
+        other_item = FoodItem.objects.create(
+            name='Milk',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+        )
+        other_price = PriceObservation.objects.create(
+            food_item=other_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('1.50'),
+        )
+        wrong_price = RecipeIngredientForm(
+            data=self._ingredient_post_data(price_observation=str(other_price.pk)),
+        )
+        self.assertFalse(wrong_price.is_valid())
+        self.assertIn('price_observation', wrong_price.errors)
+
+    def test_invalid_ingredient_post_preserves_values_and_shows_errors(self):
+        response = self.client.post(
+            reverse('recipe_ingredient_create', kwargs={'recipe_pk': self.recipe.pk}),
+            self._ingredient_post_data(quantity='0'),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Ensure this value is greater than or equal to 0.001.')
+        self.assertContains(response, 'value="0"')
+        self.assertEqual(self.recipe.ingredients.count(), 0)
+
+    def test_recipe_ingredient_form_reuses_zero_one_multiple_price_policy(self):
+        omitted_single = RecipeIngredientForm(
+            data=self._ingredient_post_data(price_observation=''),
+        )
+        self.assertTrue(omitted_single.is_valid(), omitted_single.errors)
+        self.assertEqual(omitted_single.cleaned_data['price_observation'], self.price)
+
+        self.price.delete()
+        no_price = RecipeIngredientForm(
+            data=self._ingredient_post_data(price_observation=''),
+        )
+        self.assertTrue(no_price.is_valid(), no_price.errors)
+        self.assertIsNone(no_price.cleaned_data['price_observation'])
+
+        first_price = PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('2.00'),
+        )
+        PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('3.00'),
+        )
+        multiple_without_selection = RecipeIngredientForm(
+            data=self._ingredient_post_data(price_observation=''),
+        )
+        self.assertFalse(multiple_without_selection.is_valid())
+        self.assertIn('price_observation', multiple_without_selection.errors)
+
+        explicit_price = RecipeIngredientForm(
+            data=self._ingredient_post_data(price_observation=str(first_price.pk)),
+        )
+        self.assertTrue(explicit_price.is_valid(), explicit_price.errors)
+
+    def test_recipe_estimate_components_render_incomplete_independently(self):
+        self.food_item.fat_per_100 = None
+        self.food_item.save()
+        self.price.delete()
+        RecipeIngredient.objects.create(
+            recipe=self.recipe,
+            food_item=self.food_item,
+            quantity=Decimal('250'),
+            unit=FoodItem.GRAMS,
+        )
+
+        response = self.client.get(reverse('recipe_detail', kwargs={'pk': self.recipe.pk}))
+
+        self.assertContains(response, '950.00 kcal')
+        self.assertContains(response, '33.00 g')
+        self.assertContains(response, 'Carbohydrates')
+        self.assertContains(response, 'Fat')
+        self.assertContains(response, 'Estimated cost')
+        self.assertContains(response, 'Incomplete')
+        self.assertContains(response, 'Nutrition information is missing')
+        self.assertContains(response, 'Price information is missing')
+        self.assertNotContains(response, '0.00 EUR')
+
+    def test_recipe_mixed_currency_estimate_is_not_rendered_as_a_total(self):
+        other_item = FoodItem.objects.create(
+            name='Milk',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+            calories_per_100=Decimal('60'),
+            protein_per_100=Decimal('3'),
+            carbohydrates_per_100=Decimal('5'),
+            fat_per_100=Decimal('3'),
+        )
+        sterling_price = PriceObservation.objects.create(
+            food_item=other_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('1.00'),
+            currency='GBP',
+        )
+        RecipeIngredient.objects.create(
+            recipe=self.recipe,
+            food_item=self.food_item,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            price_observation=self.price,
+        )
+        RecipeIngredient.objects.create(
+            recipe=self.recipe,
+            food_item=other_item,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            price_observation=sterling_price,
+        )
+
+        response = self.client.get(reverse('recipe_detail', kwargs={'pk': self.recipe.pk}))
+
+        self.assertContains(response, 'Costs use different currencies and cannot be combined')
+        self.assertContains(response, 'Incomplete')
+        self.assertNotContains(response, '1.50 EUR')
+
+    def test_recipe_detail_handles_stale_price_reference_gracefully(self):
+        ingredient = RecipeIngredient.objects.create(
+            recipe=self.recipe,
+            food_item=self.food_item,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            price_observation=self.price,
+        )
+        self.food_item.nutrition_basis_unit = FoodItem.MILLILITRES
+        self.food_item.save()
+
+        response = self.client.get(reverse('recipe_detail', kwargs={'pk': self.recipe.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'The estimate is unavailable')
+        self.assertNotContains(response, 'Traceback')

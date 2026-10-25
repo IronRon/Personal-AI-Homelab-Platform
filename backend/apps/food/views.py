@@ -1,14 +1,22 @@
 from datetime import date
 
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.http import HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 
-from .forms import ConsumptionEntryForm, FoodItemForm, PriceObservationForm
-from .models import ConsumptionEntry, FoodItem, PriceObservation
+from .forms import (
+    ConsumptionEntryForm,
+    FoodItemForm,
+    PriceObservationForm,
+    RecipeForm,
+    RecipeIngredientForm,
+)
+from .models import ConsumptionEntry, FoodItem, PriceObservation, Recipe, RecipeIngredient
+from .services.calculations import calculate_recipe_estimate, select_price_observation
 from .services.consumption import (
     create_consumption_entry,
     get_consumption_entries_for_date,
@@ -99,6 +107,133 @@ def price_observation_edit(request, food_item_pk, pk):
         'food/price_observation_form.html',
         {'form': form, 'food_item': food_item, 'is_edit': True},
     )
+
+
+def recipe_list(request):
+    recipes = Recipe.objects.prefetch_related('ingredients')
+    return render(request, 'food/recipe_list.html', {'recipes': recipes})
+
+
+def recipe_create(request):
+    form = RecipeForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        recipe = form.save()
+        messages.success(request, f'{recipe.name} was added to Recipes.')
+        return redirect('recipe_detail', pk=recipe.pk)
+
+    return render(request, 'food/recipe_form.html', {'form': form, 'is_edit': False})
+
+
+def recipe_edit(request, pk):
+    recipe = get_object_or_404(Recipe, pk=pk)
+    form = RecipeForm(request.POST or None, instance=recipe)
+    if request.method == 'POST' and form.is_valid():
+        recipe = form.save()
+        messages.success(request, f'{recipe.name} was updated.')
+        return redirect('recipe_detail', pk=recipe.pk)
+
+    return render(
+        request,
+        'food/recipe_form.html',
+        {'form': form, 'recipe': recipe, 'is_edit': True},
+    )
+
+
+def recipe_detail(request, pk):
+    recipe = get_object_or_404(
+        Recipe.objects.prefetch_related('ingredients__food_item', 'ingredients__price_observation'),
+        pk=pk,
+    )
+    ingredients = list(recipe.ingredients.select_related('food_item', 'price_observation'))
+    estimate = None
+    estimate_error = False
+    mixed_currency = False
+    if ingredients:
+        try:
+            estimate = calculate_recipe_estimate(recipe)
+            selected_currencies = set()
+            # The estimate marks mixed-currency cost incomplete; the template also explains why.
+            for ingredient in ingredients:
+                selected_price = select_price_observation(
+                    ingredient.food_item,
+                    ingredient.price_observation,
+                )
+                if selected_price:
+                    selected_currencies.add(selected_price.currency)
+            mixed_currency = len(selected_currencies) > 1
+        except (ValueError, ValidationError):
+            # Catalogue edits can invalidate saved ingredient selections; keep detail usable.
+            estimate_error = True
+
+    return render(
+        request,
+        'food/recipe_detail.html',
+        {
+            'recipe': recipe,
+            'ingredients': ingredients,
+            'estimate': estimate,
+            'estimate_error': estimate_error,
+            'mixed_currency': mixed_currency,
+        },
+    )
+
+
+def recipe_ingredient_create(request, recipe_pk):
+    recipe = get_object_or_404(Recipe, pk=recipe_pk)
+    form = RecipeIngredientForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        ingredient = form.save(commit=False)
+        ingredient.recipe = recipe
+        try:
+            # Model.save() skips clean(); validate cross-model unit and price rules explicitly.
+            ingredient.full_clean()
+            ingredient.save()
+        except ValidationError as error:
+            form.add_error(None, error)
+        else:
+            messages.success(request, f'{ingredient.food_item} was added to {recipe.name}.')
+            return redirect('recipe_detail', pk=recipe.pk)
+
+    return render(
+        request,
+        'food/recipe_ingredient_form.html',
+        {'form': form, 'recipe': recipe, 'is_edit': False},
+    )
+
+
+def recipe_ingredient_edit(request, recipe_pk, pk):
+    recipe = get_object_or_404(Recipe, pk=recipe_pk)
+    # Constrain the lookup to its parent so another Recipe cannot edit this row by ID.
+    ingredient = get_object_or_404(RecipeIngredient, pk=pk, recipe=recipe)
+    form = RecipeIngredientForm(request.POST or None, instance=ingredient)
+    if request.method == 'POST' and form.is_valid():
+        ingredient = form.save(commit=False)
+        try:
+            ingredient.full_clean()
+            ingredient.save()
+        except ValidationError as error:
+            form.add_error(None, error)
+        else:
+            messages.success(request, f'{ingredient.food_item} was updated in {recipe.name}.')
+            return redirect('recipe_detail', pk=recipe.pk)
+
+    return render(
+        request,
+        'food/recipe_ingredient_form.html',
+        {'form': form, 'recipe': recipe, 'is_edit': True},
+    )
+
+
+def recipe_ingredient_delete(request, recipe_pk, pk):
+    # Keep destructive ingredient removal out of safe GET requests.
+    if request.method != 'POST':
+        return HttpResponseNotAllowed(['POST'])
+    recipe = get_object_or_404(Recipe, pk=recipe_pk)
+    # Enforce the same parent scope as ingredient editing.
+    ingredient = get_object_or_404(RecipeIngredient, pk=pk, recipe=recipe)
+    ingredient.delete()
+    messages.success(request, f'An ingredient was removed from {recipe.name}.')
+    return redirect('recipe_detail', pk=recipe.pk)
 
 
 def _reporting_date(request):

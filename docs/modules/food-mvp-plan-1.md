@@ -52,21 +52,25 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 
 ### Follow-on: Recipe and meal-prep data foundation
 
-**Status: Data foundation implemented on 2026-10-25; user workflows remain deferred.** This is follow-on work beyond the original basic tracking milestone above.
+**Status: Data foundation and Recipe UI implemented; Meal Prep Batch UI remains deferred.** This is follow-on work beyond the original basic tracking milestone above.
 
 - Added `Recipe` and `RecipeIngredient` for reusable plans using existing `FoodItem` records. Recipe estimates use current nutrition and price data and follow the existing zero/one/multiple price-selection policy.
 - Added `MealPrepBatch` and `BatchIngredient` for actual cooking events and actual ingredient inputs. Ingredient names, nutrient contributions, allocated costs, currency, and provenance are snapshotted when the batch is created; batch totals read snapshots only.
 - Added positive quantity/yield and unit/price ownership validation, single-currency validation for known batch costs, and transactional batch creation. Missing nutrient or cost values remain incomplete.
 - Added one additive migration and focused model, calculation, snapshot-stability, currency, and service tests. The migration was not applied to the development database.
-- Verification passed: `python manage.py check`; `python manage.py makemigrations --check --dry-run`; `python manage.py test apps.food` (57 tests); `python manage.py test` (59 tests); and `git diff --check`.
-- No forms, views, URLs, templates, batch-backed consumption, documentation-driven UI, infrastructure, or AI integration were included in this implementation slice.
 
-Next Food work for this area is the user-facing recipe and batch workflow, followed by integrating batch yield into the unified `ConsumptionEntry` flow. Count-based portions, unit conversion, inventory, purchase accounting, and arbitrary manual nutrition/cost overrides remain deferred.
+### Follow-on: Recipe UI
 
-**Relevant files**
-- `docs/modules/food-design.md` — primary requirements, open questions, milestone checklist, and implementation status.
-- `docs/project-design.md` — wider modular-monolith, service-layer, local-first, SQLite, and AI-tool boundaries.
-- `.github/copilot-instructions.md` — keep the implementation simple, modular, tested, documented, and free of silent infrastructure additions.
+**Status: Implemented on 2026-10-25.** This UI work follows the data foundation and does not change the original basic tracking milestone above.
+
+- Added Recipe list, metadata create/edit, detail, planned ingredient create/edit/POST-only delete, and a Recipes link in Food navigation.
+- Recipe detail calls the existing estimate service and presents nutrition/cost completeness independently. Estimates update from current FoodItem and PriceObservation values.
+- Added focused tests for list/detail, create/edit, ingredient management and validation, parent scoping, price selection, completeness, mixed currencies, live catalogue refresh, and stale data handling.
+- Reported verification: `python manage.py check` passed; `python manage.py makemigrations --check --dry-run` reported no changes; `python manage.py test apps.food` passed with 72 tests; the full suite passed with 74 tests; `git diff --check` passed.
+- No Meal Prep Batch forms/views/templates, batch creation through the browser, batch-backed consumption, AI, APIs, or new infrastructure were added. No model or migration changes were needed for the Recipe UI.
+
+Next work is the Meal Prep Batch UI and, later, integrating batch yield into the unified `ConsumptionEntry` flow. Count-based portions, unit conversion, inventory, purchase accounting, and arbitrary manual nutrition/cost overrides remain deferred.
+
 - `README.md` — existing setup and project structure; update only if the implemented workflow makes the development instructions materially stale.
 - `backend/apps/food/models.py` — minimum persistent Food models and validation.
 - `backend/apps/food/services/` — reusable nutrition, cost, and daily aggregation logic; create only the smallest service files needed.

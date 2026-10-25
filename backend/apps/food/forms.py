@@ -1,7 +1,74 @@
 from django import forms
 from django.utils import timezone
 
-from .models import ConsumptionEntry, FoodItem, PriceObservation
+from .models import (
+    ConsumptionEntry,
+    FoodItem,
+    PriceObservation,
+    Recipe,
+    RecipeIngredient,
+)
+from .services.calculations import select_price_observation
+
+
+class RecipeForm(forms.ModelForm):
+    class Meta:
+        model = Recipe
+        fields = ['name', 'instructions']
+        labels = {
+            'name': 'Recipe name',
+            'instructions': 'Instructions',
+        }
+        help_texts = {
+            'instructions': 'Optional preparation notes for this reusable plan.',
+        }
+        widgets = {
+            'instructions': forms.Textarea(attrs={'rows': 5}),
+        }
+
+
+class RecipeIngredientForm(forms.ModelForm):
+    class Meta:
+        model = RecipeIngredient
+        fields = ['food_item', 'quantity', 'unit', 'price_observation']
+        labels = {
+            'food_item': 'Food item',
+            'quantity': 'Planned quantity',
+            'unit': 'Unit',
+            'price_observation': 'Price observation',
+        }
+        help_texts = {
+            'quantity': 'Use a positive quantity in grams or millilitres.',
+            'unit': 'Must match the selected food item nutrition basis.',
+            'price_observation': 'One price is used automatically; choose explicitly if several are available. Leave blank if cost is unknown.',
+        }
+        widgets = {
+            'quantity': forms.NumberInput(attrs={'step': '0.001', 'min': '0.001'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['price_observation'].required = False
+        self.fields['price_observation'].empty_label = 'No price / unknown cost'
+        self.fields['price_observation'].queryset = PriceObservation.objects.select_related(
+            'food_item',
+        ).order_by('-observed_at', '-id')
+
+    def clean(self):
+        cleaned_data = super().clean()
+        food_item = cleaned_data.get('food_item')
+        if food_item is None:
+            return cleaned_data
+
+        try:
+            # Reuse the shared zero/one/multiple-observation policy for saved recipe inputs.
+            cleaned_data['price_observation'] = select_price_observation(
+                food_item,
+                cleaned_data.get('price_observation'),
+            )
+        except ValueError as error:
+            self.add_error('price_observation', str(error))
+        return cleaned_data
 
 
 class FoodItemForm(forms.ModelForm):

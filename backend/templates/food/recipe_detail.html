@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ recipe.name }} | Recipes{% endblock %}
+
+{% block content %}
+  {% include 'food/_navigation.html' %}
+  <section class="hero">
+    <h1>{{ recipe.name }}</h1>
+    <p>A Recipe is a reusable plan. Nutrition and cost are current estimates based on catalogue data and may change when catalogue values change. A future Meal Prep Batch will preserve the values used when it was cooked; batch creation is not included here.</p>
+    <div class="actions">
+      <a href="{% url 'recipe_edit' recipe.pk %}" class="button">Edit Recipe</a>
+      <a href="{% url 'recipe_ingredient_create' recipe.pk %}" class="button secondary">Add ingredient</a>
+      <a href="{% url 'recipe_list' %}" class="button secondary">Back to Recipes</a>
+    </div>
+  </section>
+
+  {% if recipe.instructions %}
+    <section class="page-shell">
+      <h2>Instructions</h2>
+      <p>{{ recipe.instructions|linebreaksbr }}</p>
+    </section>
+  {% endif %}
+
+  <section class="page-shell" style="margin-top: 1.25rem;">
+    <h2>Planned ingredients</h2>
+    {% if ingredients %}
+      <table class="data-table">
+        <thead>
+          <tr><th>Food item</th><th>Planned quantity</th><th>Price selection</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          {% for ingredient in ingredients %}
+            <tr>
+              <td>{{ ingredient.food_item }}</td>
+              <td>{{ ingredient.quantity }} {{ ingredient.unit }}</td>
+              <td>
+                {% if ingredient.price_observation %}
+                  {{ ingredient.price_observation.paid_price }} {{ ingredient.price_observation.currency }}
+                {% elif ingredient.food_item.price_observations.count == 1 %}
+                  Single current price used automatically
+                {% elif ingredient.food_item.price_observations.count > 1 %}
+                  Select a price to complete the estimate
+                {% else %}
+                  Cost unknown
+                {% endif %}
+              </td>
+              <td>
+                <div class="actions compact-actions">
+                  <a href="{% url 'recipe_ingredient_edit' recipe.pk ingredient.pk %}">Edit</a>
+                  <form method="post" action="{% url 'recipe_ingredient_delete' recipe.pk ingredient.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="link-button danger-link" onclick="return confirm('Remove this ingredient from the recipe?');">Remove</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty-state">This recipe has no planned ingredients yet. Add at least one to see its estimate.</p>
+    {% endif %}
+  </section>
+
+  <section class="page-shell" style="margin-top: 1.25rem;">
+    <h2>Current estimate</h2>
+    {% if estimate_error %}
+      <p class="warning" role="status">The estimate is unavailable because one or more ingredients need attention, such as a unit mismatch or a price selection. Edit the affected ingredients to continue.</p>
+    {% elif estimate %}
+      {% if not estimate.nutrition_complete or not estimate.cost_complete %}
+        <p class="warning" role="status">
+          {% if not estimate.nutrition_complete %}Nutrition information is missing for one or more ingredients. {% endif %}
+          {% if not estimate.cost_complete %}
+            {% if mixed_currency %}Costs use different currencies and cannot be combined.{% else %}Price information is missing or requires a selection.{% endif %}
+          {% endif %}
+        </p>
+      {% endif %}
+      <div class="summary-grid" aria-label="Current recipe estimate">
+        <article class="summary-card"><span>Calories</span><strong>{% if estimate.calories_complete %}{{ estimate.calories }} kcal{% else %}Incomplete{% endif %}</strong></article>
+        <article class="summary-card"><span>Protein</span><strong>{% if estimate.protein_complete %}{{ estimate.protein }} g{% else %}Incomplete{% endif %}</strong></article>
+        <article class="summary-card"><span>Carbohydrates</span><strong>{% if estimate.carbohydrates_complete %}{{ estimate.carbohydrates }} g{% else %}Incomplete{% endif %}</strong></article>
+        <article class="summary-card"><span>Fat</span><strong>{% if estimate.fat_complete %}{{ estimate.fat }} g{% else %}Incomplete{% endif %}</strong></article>
+        <article class="summary-card"><span>Estimated cost{% if estimate.currency %} ({{ estimate.currency }}){% endif %}</span><strong>{% if estimate.cost_complete %}{{ estimate.estimated_cost }} {{ estimate.currency }}{% else %}Incomplete{% endif %}</strong></article>
+      </div>
+    {% else %}
+      <p class="empty-state">Add ingredients to calculate a current estimate.</p>
+    {% endif %}
+  </section>
+{% endblock %}
