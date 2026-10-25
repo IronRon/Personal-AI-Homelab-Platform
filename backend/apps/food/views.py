@@ -11,6 +11,8 @@ from django.views.decorators.http import require_GET
 
 from .forms import (
     BatchIngredientFormSet,
+    BatchConsumptionForm,
+    ConsumptionMetadataForm,
     ConsumptionEntryForm,
     FoodItemForm,
     MealPrepBatchForm,
@@ -32,6 +34,7 @@ from .services.calculations import (
     select_price_observation,
 )
 from .services.consumption import (
+    create_batch_consumption_entry,
     create_consumption_entry,
     get_consumption_entries_for_date,
     get_daily_summary,
@@ -345,6 +348,59 @@ def meal_prep_detail(request, pk):
     )
 
 
+def batch_consumption_create(request, batch_pk):
+    batch = get_object_or_404(
+        MealPrepBatch.objects.select_related('recipe').prefetch_related('ingredients'),
+        pk=batch_pk,
+    )
+    form = BatchConsumptionForm(batch, request.POST or None)
+    totals = None
+    totals_error = False
+    try:
+        totals = calculate_batch_totals(batch)
+    except ValueError:
+        totals_error = True
+
+    if request.method == 'POST' and form.is_valid():
+        if totals_error:
+            form.add_error(
+                None,
+                'This batch has conflicting stored cost currencies and cannot be logged.',
+            )
+        elif batch.yield_quantity <= 0:
+            form.add_error(None, 'This batch has an invalid yield and cannot be logged.')
+        else:
+            data = form.cleaned_data
+            try:
+                entry = create_batch_consumption_entry(
+                    batch,
+                    consumed_quantity=data['quantity'],
+                    unit=data['unit'],
+                    consumed_at=data['consumed_at'],
+                    meal_category=data.get('meal_category', ''),
+                )
+            except (ValueError, ValidationError):
+                form.add_error(
+                    None,
+                    'This batch could not be logged. Check the amount and batch details, then try again.',
+                )
+            else:
+                messages.success(request, f'{entry.source_name} was added to your food log.')
+                reporting_date = timezone.localtime(entry.consumed_at).date().isoformat()
+                return redirect(f'{reverse("food_today")}?date={reporting_date}')
+
+    return render(
+        request,
+        'food/meal_prep_consumption_form.html',
+        {
+            'batch': batch,
+            'form': form,
+            'totals': totals,
+            'totals_error': totals_error,
+        },
+    )
+
+
 def recipe_ingredient_create(request, recipe_pk):
     recipe = get_object_or_404(Recipe, pk=recipe_pk)
     form = RecipeIngredientForm(request.POST or None)
@@ -455,6 +511,31 @@ def consumption_create(request):
 
 def consumption_edit(request, pk):
     entry = get_object_or_404(ConsumptionEntry, pk=pk)
+    metadata_only = entry.meal_prep_batch_id is not None or entry.food_item_id is None
+    if metadata_only:
+        form = ConsumptionMetadataForm(request.POST or None, instance=entry)
+        if request.method == 'POST' and form.is_valid():
+            # Metadata-only edits preserve the already-recorded historical snapshots.
+            entry = update_consumption_entry(
+                entry,
+                consumed_at=form.cleaned_data['consumed_at'],
+                meal_category=form.cleaned_data.get('meal_category', ''),
+            )
+            messages.success(request, 'Food log entry updated.')
+            return redirect(
+                f'{reverse("food_history")}?date={timezone.localtime(entry.consumed_at).date().isoformat()}'
+            )
+        return render(
+            request,
+            'food/consumption_form.html',
+            {
+                'form': form,
+                'entry': entry,
+                'is_edit': True,
+                'metadata_only': True,
+            },
+        )
+
     form = ConsumptionEntryForm(request.POST or None, instance=entry)
     if request.method == 'POST' and form.is_valid():
         data = form.cleaned_data

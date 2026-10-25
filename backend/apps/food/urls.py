@@ -32,6 +32,11 @@ urlpatterns = [
     ),
     path('batches/', views.meal_prep_list, name='meal_prep_list'),
     path('batches/new/', views.meal_prep_create, name='meal_prep_create'),
+    path(
+        'batches/<int:batch_pk>/consumption/new/',
+        views.batch_consumption_create,
+        name='batch_consumption_create',
+    ),
     path('batches/<int:pk>/', views.meal_prep_detail, name='meal_prep_detail'),
     path('<int:pk>/', views.food_item_detail, name='food_item_detail'),
     path('<int:pk>/edit/', views.food_item_edit, name='food_item_edit'),

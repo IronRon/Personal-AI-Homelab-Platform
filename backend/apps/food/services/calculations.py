@@ -24,7 +24,9 @@ class DailyTotals:
     protein: Decimal
     carbohydrates: Decimal
     fat: Decimal
-    estimated_cost: Decimal
+    estimated_cost: Optional[Decimal]
+    currency: Optional[str]
+    costs_by_currency: dict[str, Decimal]
     nutrition_complete: bool
     cost_complete: bool
     entry_count: int
@@ -279,6 +281,39 @@ def calculate_batch_totals(batch) -> BatchTotals:
     )
 
 
+def scale_batch_totals(
+    totals: BatchTotals,
+    consumed_quantity: Decimal,
+    yield_quantity: Decimal,
+) -> dict[str, Optional[Decimal]]:
+    """Scale complete historical components; incomplete subtotals stay null, not misleading partial values."""
+    consumed_quantity = Decimal(consumed_quantity)
+    yield_quantity = Decimal(yield_quantity)
+    if not consumed_quantity.is_finite() or consumed_quantity <= 0:
+        raise ValueError('Consumed quantity must be greater than zero.')
+    if not yield_quantity.is_finite() or yield_quantity <= 0:
+        raise ValueError('Batch yield must be greater than zero.')
+
+    proportion = consumed_quantity / yield_quantity
+
+    def scale(value: Decimal, complete: bool, quantum: Decimal):
+        if not complete:
+            return None
+        return _quantize(value * proportion, quantum)
+
+    return {
+        'calories': scale(totals.calories, totals.calories_complete, NUTRIENT_QUANTUM),
+        'protein': scale(totals.protein, totals.protein_complete, NUTRIENT_QUANTUM),
+        'carbohydrates': scale(
+            totals.carbohydrates,
+            totals.carbohydrates_complete,
+            NUTRIENT_QUANTUM,
+        ),
+        'fat': scale(totals.fat, totals.fat_complete, NUTRIENT_QUANTUM),
+        'estimated_cost': scale(totals.estimated_cost, totals.cost_complete, MONEY_QUANTUM),
+    }
+
+
 def _sum_known(values: list[Optional[Decimal]]) -> Decimal:
     return _quantize(
         sum((value for value in values if value is not None), Decimal('0')),
@@ -307,19 +342,37 @@ def aggregate_daily(entries: Iterable, target_date: date, tz=None) -> DailyTotal
         'carbohydrates': [entry.carbohydrates for entry in matching_entries],
         'fat': [entry.fat for entry in matching_entries],
     }
-    costs = [entry.estimated_cost for entry in matching_entries]
+    costs_by_currency: dict[str, list[Decimal]] = {}
+    for entry in matching_entries:
+        if entry.estimated_cost is not None and entry.currency:
+            costs_by_currency.setdefault(entry.currency, []).append(entry.estimated_cost)
+    currency_totals = {
+        currency: _quantize(sum(values, Decimal('0')), MONEY_QUANTUM)
+        for currency, values in sorted(costs_by_currency.items())
+    }
+    # A daily total across currencies has no defined meaning without conversion.
+    if len(currency_totals) == 1:
+        currency, estimated_cost = next(iter(currency_totals.items()))
+    elif not currency_totals:
+        currency = None
+        estimated_cost = Decimal('0')
+    else:
+        currency = None
+        estimated_cost = None
 
     return DailyTotals(
         calories=_sum_known(nutrition_values['calories']),
         protein=_sum_known(nutrition_values['protein']),
         carbohydrates=_sum_known(nutrition_values['carbohydrates']),
         fat=_sum_known(nutrition_values['fat']),
-        estimated_cost=_quantize(
-            sum((cost for cost in costs if cost is not None), Decimal('0')),
-            MONEY_QUANTUM,
-        ),
+        estimated_cost=estimated_cost,
+        currency=currency,
+        costs_by_currency=currency_totals,
         nutrition_complete=all(_all_known(values) for values in nutrition_values.values()),
-        cost_complete=all(cost is not None for cost in costs),
+        cost_complete=all(
+            entry.estimated_cost is not None and bool(entry.currency)
+            for entry in matching_entries
+        ),
         entry_count=len(matching_entries),
         calories_complete=_all_known(nutrition_values['calories']),
         protein_complete=_all_known(nutrition_values['protein']),

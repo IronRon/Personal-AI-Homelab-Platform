@@ -11,6 +11,7 @@
       · Cooked {{ batch.cooked_at|date:'j F Y, H:i' }} · Yield {{ batch.yield_quantity }} {{ batch.yield_unit }}
     </p>
     <div class="actions">
+      <a href="{% url 'batch_consumption_create' batch.pk %}" class="button">Log as eaten</a>
       <a href="{% url 'meal_prep_list' %}" class="button secondary">Back to Meal Prep</a>
     </div>
   </section>

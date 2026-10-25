@@ -2,9 +2,10 @@ from datetime import datetime
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
+from django.db.migrations.executor import MigrationExecutor
 from django.db.models.deletion import ProtectedError
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -32,9 +33,11 @@ from .services.calculations import (
     calculate_allocated_cost,
     calculate_batch_totals,
     calculate_recipe_estimate,
+    scale_batch_totals,
     scale_nutrition,
 )
 from .services.consumption import (
+    create_batch_consumption_entry,
     create_consumption_entry,
     get_consumption_entries_for_date,
     get_daily_summary,
@@ -249,6 +252,57 @@ class FoodCalculationTests(TestCase):
         self.assertEqual(totals.calories, Decimal('950.00'))
         self.assertEqual(totals.protein, Decimal('0.00'))
         self.assertFalse(totals.nutrition_complete)
+        self.assertFalse(totals.cost_complete)
+
+    def test_daily_costs_are_grouped_by_currency_without_combining(self):
+        first = ConsumptionEntry.objects.create(
+            source_name='EUR meal',
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            calories=Decimal('100'),
+            estimated_cost=Decimal('2.00'),
+            currency='EUR',
+        )
+        second = ConsumptionEntry.objects.create(
+            source_name='GBP meal',
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            calories=Decimal('100'),
+            estimated_cost=Decimal('3.00'),
+            currency='GBP',
+        )
+
+        totals = aggregate_daily([first, second], timezone.localdate())
+
+        self.assertEqual(totals.costs_by_currency, {
+            'EUR': Decimal('2.00'),
+            'GBP': Decimal('3.00'),
+        })
+        self.assertIsNone(totals.estimated_cost)
+        self.assertIsNone(totals.currency)
+        self.assertTrue(totals.cost_complete)
+
+    def test_daily_zero_cost_keeps_currency_and_unknown_cost_is_incomplete(self):
+        known_zero = ConsumptionEntry.objects.create(
+            source_name='Free sample',
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            estimated_cost=Decimal('0.00'),
+            currency='GBP',
+        )
+        unknown = ConsumptionEntry.objects.create(
+            source_name='Unknown cost',
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+            estimated_cost=None,
+            currency='',
+        )
+
+        totals = aggregate_daily([known_zero, unknown], timezone.localdate())
+
+        self.assertEqual(totals.costs_by_currency, {'GBP': Decimal('0.00')})
+        self.assertEqual(totals.currency, 'GBP')
+        self.assertEqual(totals.estimated_cost, Decimal('0.00'))
         self.assertFalse(totals.cost_complete)
 
 
@@ -716,6 +770,160 @@ class ConsumptionWorkflowTests(TestCase):
         self.assertFalse(ConsumptionEntry.objects.filter(pk=entry.pk).exists())
 
 
+class BatchConsumptionServiceTests(TestCase):
+    def setUp(self):
+        self.food_item = FoodItem.objects.create(
+            name='Meal base',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+            calories_per_100=Decimal('200'),
+            protein_per_100=Decimal('10'),
+            carbohydrates_per_100=None,
+            fat_per_100=Decimal('4'),
+            nutrition_source='label data',
+        )
+        self.price = PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('1200'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('12.00'),
+            currency='EUR',
+            source='receipt record',
+        )
+        self.recipe = Recipe.objects.create(name='Meal plan')
+        self.batch = create_meal_prep_batch(
+            name='Cooked meal',
+            recipe=self.recipe,
+            yield_quantity=Decimal('1200'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.food_item,
+                quantity=Decimal('1200'),
+                unit=FoodItem.GRAMS,
+                price_observation=self.price,
+            )],
+        )
+
+    def test_create_batch_entry_scales_complete_components_and_keeps_unknowns(self):
+        entry = create_batch_consumption_entry(
+            self.batch,
+            consumed_quantity=Decimal('300'),
+            unit=FoodItem.GRAMS,
+            meal_category='lunch',
+        )
+
+        self.assertEqual(entry.calories, Decimal('600.00'))
+        self.assertEqual(entry.protein, Decimal('30.00'))
+        self.assertIsNone(entry.carbohydrates)
+        self.assertEqual(entry.fat, Decimal('12.00'))
+        self.assertEqual(entry.estimated_cost, Decimal('3.00'))
+        self.assertEqual(entry.currency, 'EUR')
+        self.assertEqual(entry.source_name, 'Meal Prep Batch: Cooked meal')
+        self.assertEqual(entry.nutrition_source, 'label data')
+        self.assertEqual(entry.cost_source, 'receipt record')
+        self.assertIsNone(entry.food_item)
+        self.assertIsNone(entry.price_observation)
+        self.assertEqual(entry.meal_prep_batch, self.batch)
+        self.assertEqual(self.batch.yield_quantity, Decimal('1200.000'))
+        self.assertEqual(self.batch.ingredients.get().calories, Decimal('2400.00'))
+
+    def test_batch_entry_rejects_invalid_quantity_unit_and_amount_over_yield(self):
+        for quantity in (Decimal('0'), Decimal('-1')):
+            with self.subTest(quantity=quantity), self.assertRaises(ValueError):
+                create_batch_consumption_entry(
+                    self.batch,
+                    consumed_quantity=quantity,
+                    unit=FoodItem.GRAMS,
+                )
+
+        with self.assertRaisesMessage(ValueError, 'cannot exceed'):
+            create_batch_consumption_entry(
+                self.batch,
+                consumed_quantity=Decimal('1200.001'),
+                unit=FoodItem.GRAMS,
+            )
+        with self.assertRaisesMessage(ValueError, 'match'):
+            create_batch_consumption_entry(
+                self.batch,
+                consumed_quantity=Decimal('100'),
+                unit=FoodItem.MILLILITRES,
+            )
+
+        self.assertEqual(ConsumptionEntry.objects.count(), 0)
+
+    def test_batch_entry_keeps_cost_unknown_without_currency(self):
+        self.price.delete()
+        batch = create_meal_prep_batch(
+            name='Unknown cost meal',
+            yield_quantity=Decimal('1200'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.food_item,
+                quantity=Decimal('1200'),
+                unit=FoodItem.GRAMS,
+            )],
+        )
+
+        entry = create_batch_consumption_entry(
+            batch,
+            consumed_quantity=Decimal('300'),
+            unit=FoodItem.GRAMS,
+        )
+
+        self.assertIsNone(entry.estimated_cost)
+        self.assertEqual(entry.currency, '')
+        self.assertEqual(entry.calories, Decimal('600.00'))
+
+    def test_batch_entry_snapshots_survive_catalogue_recipe_and_batch_deletion(self):
+        entry = create_batch_consumption_entry(
+            self.batch,
+            consumed_quantity=Decimal('300'),
+            unit=FoodItem.GRAMS,
+        )
+        self.food_item.calories_per_100 = Decimal('999')
+        self.food_item.save()
+        self.price.paid_price = Decimal('99.00')
+        self.price.save()
+        self.recipe.delete()
+        self.batch.refresh_from_db()
+        self.batch.name = 'Renamed batch'
+        self.batch.yield_quantity = Decimal('600')
+        self.batch.save()
+        self.food_item.delete()
+        self.batch.refresh_from_db()
+
+        self.assertIsNone(self.batch.recipe)
+        self.assertEqual(self.batch.ingredients.get().calories, Decimal('2400.00'))
+        entry.refresh_from_db()
+        self.assertEqual(entry.calories, Decimal('600.00'))
+        self.assertEqual(entry.estimated_cost, Decimal('3.00'))
+        self.assertEqual(entry.source_name, 'Meal Prep Batch: Cooked meal')
+
+        self.batch.delete()
+        entry.refresh_from_db()
+        self.assertIsNone(entry.meal_prep_batch)
+        self.assertEqual(entry.source_name, 'Meal Prep Batch: Cooked meal')
+        self.assertEqual(entry.calories, Decimal('600.00'))
+        self.assertEqual(entry.estimated_cost, Decimal('3.00'))
+        with self.assertRaisesMessage(ValueError, 'Batch-backed'):
+            recalculate_consumption_entry(entry, confirmed=True)
+
+    def test_catalogue_recalculation_is_rejected_for_batch_entries(self):
+        entry = create_batch_consumption_entry(
+            self.batch,
+            consumed_quantity=Decimal('300'),
+            unit=FoodItem.GRAMS,
+        )
+
+        with self.assertRaisesMessage(ValueError, 'Batch-backed'):
+            recalculate_consumption_entry(entry, confirmed=True)
+
+    def test_scale_batch_totals_rejects_nonpositive_yield(self):
+        totals = calculate_batch_totals(self.batch)
+        with self.assertRaisesMessage(ValueError, 'yield'):
+            scale_batch_totals(totals, Decimal('100'), Decimal('0'))
+
+
 class RecipeAndMealPrepModelTests(TestCase):
     def setUp(self):
         self.oats = FoodItem.objects.create(
@@ -910,6 +1118,72 @@ class RecipeAndMealPrepModelTests(TestCase):
         self.assertIsNone(batch.recipe)
         self.assertEqual(batch.name, 'My named batch')
         self.assertEqual(batch.ingredients.count(), 1)
+
+    def test_consumption_entry_source_validation_preserves_orphans(self):
+        batch = MealPrepBatch.objects.create(
+            name='Oats batch',
+            yield_quantity=Decimal('500'),
+            yield_unit=FoodItem.GRAMS,
+        )
+        legacy_orphan = ConsumptionEntry.objects.create(
+            source_name='Historical meal',
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+        )
+        legacy_orphan.full_clean()
+
+        batch_entry = ConsumptionEntry(
+            meal_prep_batch=batch,
+            source_name='Meal Prep Batch: Oats batch',
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+        )
+        batch_entry.full_clean()
+
+        both_sources = ConsumptionEntry(
+            food_item=self.oats,
+            meal_prep_batch=batch,
+            source_name='Invalid source',
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+        )
+        with self.assertRaises(ValidationError):
+            both_sources.full_clean()
+
+        batch_entry.price_observation = self.price
+        with self.assertRaises(ValidationError):
+            batch_entry.full_clean()
+
+        batch_entry.price_observation = None
+        batch_entry.unit = FoodItem.MILLILITRES
+        with self.assertRaises(ValidationError):
+            batch_entry.full_clean()
+
+    def test_consumption_entry_source_database_constraints(self):
+        batch = MealPrepBatch.objects.create(
+            name='Oats batch',
+            yield_quantity=Decimal('500'),
+            yield_unit=FoodItem.GRAMS,
+        )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ConsumptionEntry.objects.create(
+                    food_item=self.oats,
+                    meal_prep_batch=batch,
+                    source_name='Invalid source',
+                    quantity=Decimal('100'),
+                    unit=FoodItem.GRAMS,
+                )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ConsumptionEntry.objects.create(
+                    meal_prep_batch=batch,
+                    price_observation=self.price,
+                    source_name='Invalid price source',
+                    quantity=Decimal('100'),
+                    unit=FoodItem.GRAMS,
+                )
 
 
 class RecipeAndMealPrepCalculationTests(TestCase):
@@ -2088,3 +2362,294 @@ class MealPrepWorkflowTests(TestCase):
         self.assertContains(response, 'Cost is incomplete')
         self.assertContains(response, 'Unknown')
         self.assertContains(response, 'Incomplete')
+
+
+class BatchConsumptionWorkflowTests(TestCase):
+    def setUp(self):
+        self.food_item = FoodItem.objects.create(
+            name='Meal base',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+            calories_per_100=Decimal('200'),
+            protein_per_100=Decimal('10'),
+            carbohydrates_per_100=Decimal('20'),
+            fat_per_100=Decimal('4'),
+            nutrition_source='label',
+        )
+        self.price = PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('1200'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('12.00'),
+            currency='GBP',
+            source='receipt',
+        )
+        self.batch = create_meal_prep_batch(
+            name='Lunch batch',
+            yield_quantity=Decimal('1200'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.food_item,
+                quantity=Decimal('1200'),
+                unit=FoodItem.GRAMS,
+                price_observation=self.price,
+            )],
+        )
+
+    def _post_data(self, **overrides):
+        data = {
+            'quantity': '300',
+            'unit': FoodItem.GRAMS,
+            'consumed_at': '2026-10-25T12:30',
+            'meal_category': 'lunch',
+        }
+        data.update(overrides)
+        return data
+
+    def test_batch_detail_action_and_context_page(self):
+        detail = self.client.get(reverse('meal_prep_detail', kwargs={'pk': self.batch.pk}))
+        self.assertContains(
+            detail,
+            reverse('batch_consumption_create', kwargs={'batch_pk': self.batch.pk}),
+        )
+        self.assertContains(detail, 'Log as eaten')
+
+        response = self.client.get(reverse(
+            'batch_consumption_create',
+            kwargs={'batch_pk': self.batch.pk},
+        ))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Lunch batch')
+        self.assertContains(response, '1200.000 g')
+        self.assertContains(response, '2400.00 kcal')
+        self.assertContains(response, '12.00 GBP')
+        self.assertNotContains(response, 'name="calories"')
+        self.assertNotContains(response, 'name="estimated_cost"')
+        self.assertEqual(set(response.context['form'].fields), {
+            'quantity', 'unit', 'consumed_at', 'meal_category',
+        })
+
+    def test_valid_batch_consumption_redirects_to_local_today_and_snapshots(self):
+        response = self.client.post(
+            reverse('batch_consumption_create', kwargs={'batch_pk': self.batch.pk}),
+            self._post_data(),
+        )
+
+        entry = ConsumptionEntry.objects.get()
+        self.assertRedirects(response, f'{reverse("food_today")}?date=2026-10-25')
+        self.assertEqual(entry.calories, Decimal('600.00'))
+        self.assertEqual(entry.protein, Decimal('30.00'))
+        self.assertEqual(entry.carbohydrates, Decimal('60.00'))
+        self.assertEqual(entry.fat, Decimal('12.00'))
+        self.assertEqual(entry.estimated_cost, Decimal('3.00'))
+        self.assertEqual(entry.currency, 'GBP')
+
+    def test_invalid_amount_and_unit_preserve_form_values_without_internal_errors(self):
+        url = reverse('batch_consumption_create', kwargs={'batch_pk': self.batch.pk})
+        for data in (
+            self._post_data(quantity='0'),
+            self._post_data(quantity='1300'),
+            self._post_data(unit=FoodItem.MILLILITRES),
+        ):
+            response = self.client.post(url, data)
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'Lunch batch')
+            self.assertNotContains(response, 'Traceback')
+        self.assertContains(
+            self.client.post(url, self._post_data(unit=FoodItem.MILLILITRES)),
+            'Select a valid choice',
+        )
+        self.assertEqual(ConsumptionEntry.objects.count(), 0)
+
+    def test_batch_entry_appears_in_today_and_history_and_metadata_edit_preserves_snapshots(self):
+        response = self.client.post(
+            reverse('batch_consumption_create', kwargs={'batch_pk': self.batch.pk}),
+            self._post_data(),
+        )
+        entry = ConsumptionEntry.objects.get()
+        self.assertRedirects(response, f'{reverse("food_today")}?date=2026-10-25')
+
+        today = self.client.get(reverse('food_today'), {'date': '2026-10-25'})
+        history = self.client.get(reverse('food_history'), {'date': '2026-10-25'})
+        self.assertContains(today, 'Meal Prep Batch: Lunch batch')
+        self.assertContains(today, '600.00')
+        self.assertContains(today, '3.00 GBP')
+        self.assertContains(history, 'Meal Prep Batch: Lunch batch')
+        self.assertContains(history, '3.00 GBP')
+
+        edit_url = reverse('consumption_edit', kwargs={'pk': entry.pk})
+        edit_page = self.client.get(edit_url)
+        self.assertContains(edit_page, 'Only the consumed date, time, and meal category can be changed')
+        self.assertNotContains(edit_page, 'Recalculate and save')
+        self.assertNotContains(edit_page, 'name="food_item"')
+        edited = self.client.post(edit_url, {
+            'consumed_at': '2026-10-25T14:00',
+            'meal_category': 'dinner',
+        })
+        self.assertEqual(edited.status_code, 302)
+        entry.refresh_from_db()
+        self.assertEqual(entry.meal_category, 'dinner')
+        self.assertEqual(entry.calories, Decimal('600.00'))
+        self.assertEqual(entry.estimated_cost, Decimal('3.00'))
+
+    def test_today_groups_batch_costs_and_displays_known_zero_currency(self):
+        create_batch_consumption_entry(
+            self.batch,
+            consumed_quantity=Decimal('300'),
+            unit=FoodItem.GRAMS,
+            consumed_at=timezone.make_aware(
+                datetime(2026, 10, 25, 10, 0),
+                timezone.get_current_timezone(),
+            ),
+        )
+        euro_price = PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('1200'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('24.00'),
+            currency='EUR',
+            source='other receipt',
+        )
+        euro_batch = create_meal_prep_batch(
+            name='Euro batch',
+            yield_quantity=Decimal('1200'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.food_item,
+                quantity=Decimal('1200'),
+                unit=FoodItem.GRAMS,
+                price_observation=euro_price,
+            )],
+        )
+        create_batch_consumption_entry(
+            euro_batch,
+            consumed_quantity=Decimal('300'),
+            unit=FoodItem.GRAMS,
+            consumed_at=timezone.make_aware(
+                datetime(2026, 10, 25, 11, 0),
+                timezone.get_current_timezone(),
+            ),
+        )
+        zero_price = PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('1200'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('0.00'),
+            currency='JPY',
+            source='free sample',
+        )
+        zero_batch = create_meal_prep_batch(
+            name='Zero-cost batch',
+            yield_quantity=Decimal('1200'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.food_item,
+                quantity=Decimal('1200'),
+                unit=FoodItem.GRAMS,
+                price_observation=zero_price,
+            )],
+        )
+        create_batch_consumption_entry(
+            zero_batch,
+            consumed_quantity=Decimal('300'),
+            unit=FoodItem.GRAMS,
+            consumed_at=timezone.make_aware(
+                datetime(2026, 10, 25, 12, 0),
+                timezone.get_current_timezone(),
+            ),
+        )
+
+        today = self.client.get(reverse('food_today'), {'date': '2026-10-25'})
+        history = self.client.get(reverse('food_history'), {'date': '2026-10-25'})
+        self.assertContains(today, '3.00 GBP')
+        self.assertContains(today, '6.00 EUR')
+        self.assertContains(today, '0.00 JPY')
+        self.assertContains(history, '0.00 JPY')
+        self.assertNotContains(today, '9.00 EUR')
+
+    def test_deleting_batch_entry_does_not_delete_batch_and_batch_deletion_preserves_entry(self):
+        entry = create_batch_consumption_entry(
+            self.batch,
+            consumed_quantity=Decimal('300'),
+            unit=FoodItem.GRAMS,
+        )
+        delete_url = reverse('consumption_delete', kwargs={'pk': entry.pk})
+        self.assertEqual(self.client.get(delete_url).status_code, 405)
+        self.assertEqual(self.client.post(delete_url).status_code, 302)
+        self.assertFalse(ConsumptionEntry.objects.filter(pk=entry.pk).exists())
+        self.assertTrue(MealPrepBatch.objects.filter(pk=self.batch.pk).exists())
+
+        entry = create_batch_consumption_entry(
+            self.batch,
+            consumed_quantity=Decimal('300'),
+            unit=FoodItem.GRAMS,
+        )
+        self.batch.delete()
+        entry.refresh_from_db()
+        self.assertIsNone(entry.meal_prep_batch)
+        self.assertEqual(entry.calories, Decimal('600.00'))
+        self.assertEqual(entry.estimated_cost, Decimal('3.00'))
+        self.assertEqual(
+            self.client.get(reverse('consumption_edit', kwargs={'pk': entry.pk})).status_code,
+            200,
+        )
+
+    def test_individually_valid_entries_may_exceed_cumulative_yield(self):
+        for _ in range(2):
+            create_batch_consumption_entry(
+                self.batch,
+                consumed_quantity=Decimal('800'),
+                unit=FoodItem.GRAMS,
+            )
+
+        self.assertEqual(self.batch.consumption_entries.count(), 2)
+
+
+class ConsumptionBatchMigrationTests(TransactionTestCase):
+    migrate_from = ('food', '0002_recipe_mealprepbatch_recipeingredient_and_more')
+    migrate_to = ('food', '0003_consumptionentry_meal_prep_batch_and_more')
+
+    def tearDown(self):
+        MigrationExecutor(connection).migrate([self.migrate_to])
+        super().tearDown()
+
+    def test_existing_item_entry_values_survive_nullable_batch_fk_migration(self):
+        MigrationExecutor(connection).migrate([self.migrate_from])
+        old_apps = MigrationExecutor(connection).loader.project_state(
+            [self.migrate_from],
+        ).apps
+        FoodItem = old_apps.get_model('food', 'FoodItem')
+        OldConsumptionEntry = old_apps.get_model('food', 'ConsumptionEntry')
+
+        food_item = FoodItem.objects.create(
+            name='Migration oats',
+            item_type='ingredient',
+            nutrition_basis_unit='g',
+        )
+        old_entry = OldConsumptionEntry.objects.create(
+            food_item=food_item,
+            source_name='Migration oats',
+            quantity=Decimal('125'),
+            unit='g',
+            calories=Decimal('475.00'),
+            protein=Decimal('16.50'),
+            carbohydrates=Decimal('83.75'),
+            fat=Decimal('8.13'),
+            estimated_cost=Decimal('0.31'),
+            currency='EUR',
+            nutrition_source='label',
+            cost_source='receipt',
+        )
+
+        MigrationExecutor(connection).migrate([self.migrate_to])
+        migrated_entry = ConsumptionEntry.objects.get(pk=old_entry.pk)
+
+        self.assertEqual(migrated_entry.food_item_id, food_item.pk)
+        self.assertIsNone(migrated_entry.meal_prep_batch_id)
+        self.assertEqual(migrated_entry.source_name, 'Migration oats')
+        self.assertEqual(migrated_entry.quantity, Decimal('125.000'))
+        self.assertEqual(migrated_entry.calories, Decimal('475.00'))
+        self.assertEqual(migrated_entry.estimated_cost, Decimal('0.31'))
+        self.assertEqual(migrated_entry.currency, 'EUR')
+        self.assertEqual(migrated_entry.nutrition_source, 'label')
+        self.assertEqual(migrated_entry.cost_source, 'receipt')

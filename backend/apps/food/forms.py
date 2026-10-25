@@ -1,6 +1,7 @@
 from django import forms
 from django.forms import formset_factory
 from django.utils import timezone
+from decimal import Decimal
 
 from .models import (
     ConsumptionEntry,
@@ -365,4 +366,70 @@ class ConsumptionEntryForm(forms.ModelForm):
                     'price_observation',
                     'Select a price observation when multiple prices are available.',
                 )
+        return cleaned_data
+
+
+class ConsumptionMetadataForm(forms.ModelForm):
+    consumed_at = forms.DateTimeField(
+        input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M',
+            attrs={'type': 'datetime-local'},
+        ),
+        label='Consumed date and time',
+    )
+
+    class Meta:
+        model = ConsumptionEntry
+        fields = ['consumed_at', 'meal_category']
+        labels = {'meal_category': 'Meal category'}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk and self.instance.consumed_at:
+            self.initial['consumed_at'] = timezone.localtime(
+                self.instance.consumed_at,
+            ).strftime('%Y-%m-%dT%H:%M')
+
+
+class BatchConsumptionForm(forms.Form):
+    quantity = forms.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        min_value=Decimal('0.001'),
+        label='Amount consumed',
+        widget=forms.NumberInput(attrs={'step': '0.001', 'min': '0.001'}),
+    )
+    unit = forms.ChoiceField(choices=FoodItem.BASIS_UNITS, widget=forms.HiddenInput())
+    consumed_at = forms.DateTimeField(
+        input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M',
+            attrs={'type': 'datetime-local'},
+        ),
+        label='Consumed date and time',
+    )
+    meal_category = forms.ChoiceField(
+        choices=(('', 'No category'),) + ConsumptionEntry.MEAL_CATEGORIES,
+        required=False,
+        label='Meal category',
+    )
+
+    def __init__(self, batch, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.batch = batch
+        unit_label = dict(FoodItem.BASIS_UNITS).get(batch.yield_unit, batch.yield_unit)
+        self.fields['unit'].choices = [(batch.yield_unit, unit_label)]
+        self.fields['unit'].initial = batch.yield_unit
+        self.fields['quantity'].max_value = batch.yield_quantity
+        if not self.is_bound:
+            self.initial.setdefault('consumed_at', timezone.localtime(
+                timezone.now(),
+            ).strftime('%Y-%m-%dT%H:%M'))
+
+    def clean(self):
+        cleaned_data = super().clean()
+        unit = cleaned_data.get('unit')
+        if unit and unit != self.batch.yield_unit:
+            self.add_error('unit', 'Unit must match the batch yield unit.')
         return cleaned_data

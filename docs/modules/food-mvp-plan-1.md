@@ -48,7 +48,7 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 18. Update `docs/modules/food-design.md` implementation status, milestone checklist, acceptance checklist, and revision history only for behavior actually implemented. Do not mark recipes, meal prep, AI, or deferred features implemented.
 19. Report changed files, migration status, exact verification commands/results, limitations, unresolved questions, and one suggested next milestone. Do not begin the next milestone.
 
-**Phase 4 status: Implemented.** Verification, Food landing-page navigation, shared Food navigation, contextual help, empty states, outside-meal guidance, responsive styling improvements, route regressions, and documentation updates are complete. No recipes, meal preparation, serving conversions, AI, or new infrastructure were added. Rendered visual inspection was not automated in this environment; manual desktop/mobile browser review remains part of the checklist below.
+**Phase 4 implementation: Complete; manual visual review remains outstanding.** Verification, Food landing-page navigation, shared Food navigation, contextual help, empty states, outside-meal guidance, responsive styling improvements, route regressions, and documentation updates are complete. No recipes, meal preparation, serving conversions, AI, or new infrastructure were added. Rendered visual inspection was not automated in this environment; manual desktop/mobile browser review remains part of the checklist below.
 
 ### Follow-on: Recipe and meal-prep data foundation
 
@@ -69,17 +69,20 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 - Reported verification: `python manage.py check` passed; `python manage.py makemigrations --check --dry-run` reported no changes; `python manage.py test apps.food` passed with 72 tests; the full suite passed with 74 tests; `git diff --check` passed.
 - No Meal Prep Batch forms/views/templates, batch creation through the browser, batch-backed consumption, AI, APIs, or new infrastructure were added. No model or migration changes were needed for the Recipe UI.
 
-### Follow-on: Meal Prep Batch UI
+### Follow-on: Meal Prep Batch UI and consumption
 
-**Status: Implemented on 2026-10-25.** This UI work adds no schema changes to the existing Recipe/batch data foundation.
+**Status: Implemented on 2026-10-25.** The batch UI added no schema changes to the Recipe/batch data foundation. Batch-backed consumption is a separate follow-on slice that adds migration 0003.
 
 - Added the batch list, direct creation, Recipe-detail “Create batch” entry point, Recipe selection, and explicit loading of planned Recipe ingredients into editable actual rows.
 - Ingredient add/remove and Recipe-load actions are server-rendered POST round-trips without JavaScript; these interim submissions do not persist a batch. Existing PriceObservation selection rules apply.
 - Final creation delegates validation and snapshot creation to transactional `create_meal_prep_batch()`. Read-only detail totals come from stored snapshots through `calculate_batch_totals()`.
-- Reported verification for this slice (not rerun during this documentation sync): 87 Food tests; 89 Core + Food tests; Django check passed; `makemigrations --check --dry-run` reported no changes; `git diff --check` passed. Browser smoke covered only the list and one-row create form. Desktop/mobile review remains outstanding.
-- The existing batch migration was not applied to the development SQLite database.
+- Batch detail provides “Log as eaten”. The service validates a positive amount no greater than batch yield and matching yield unit, then scales stored batch snapshots into `ConsumptionEntry`; it does not recalculate from current catalogue values.
+- Migration 0003 adds a nullable `SET_NULL` batch relation and constraints against dual sources or a batch price observation. Deleting a batch preserves the entry's source name and nutrition/cost snapshots. Database constraints prevent both source FKs being set but do not independently require one; creation validation requires exactly one.
+- Each consumption row may be no greater than the yield, but cumulative consumption is not limited and remaining availability is not tracked.
+- User-reported implementation-run verification: `python manage.py check` passed; `python manage.py makemigrations --check --dry-run` reported no changes; Food tests passed (105); Core + Food tests passed (107); `git diff --check` passed; the migration compatibility test passed; and 300 g from a 1,200 g / 2,400 kcal batch produced 600 kcal.
+- User reported migrations 0001-0003 all unapplied in the development database; none were applied. These implementation checks were not rerun during this documentation sync.
 
-Next work is batch-backed consumption as a separate slice. Batch editing/deletion/recalculation, batch-backed `ConsumptionEntry`, logging a batch as eaten, portions/count units/conversions, inventory/purchase accounting, and AI/API integration remain deferred.
+Basic purchase history, quick-add meals/foods, cumulative batch availability/inventory, batch editing/recalculation, portions/count units/conversions, and AI/API integration remain deferred. Final MVP polish and full desktop/mobile review also remain outstanding.
 
 - `README.md` — existing setup and project structure; update only if the implemented workflow makes the development instructions materially stale.
 - `backend/apps/food/models.py` — minimum persistent Food models and validation.

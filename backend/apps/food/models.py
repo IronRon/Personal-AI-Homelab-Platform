@@ -339,6 +339,13 @@ class ConsumptionEntry(models.Model):
 		blank=True,
 		related_name='consumption_entries',
 	)
+	meal_prep_batch = models.ForeignKey(
+		MealPrepBatch,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='consumption_entries',
+	)
 	price_observation = models.ForeignKey(
 		PriceObservation,
 		on_delete=models.SET_NULL,
@@ -360,7 +367,7 @@ class ConsumptionEntry(models.Model):
 	carbohydrates = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 	fat = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 	estimated_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-	currency = models.CharField(max_length=3, default='EUR')
+	currency = models.CharField(max_length=3, default='EUR', blank=True)
 	nutrition_source = models.CharField(max_length=120, blank=True)
 	cost_source = models.CharField(max_length=120, blank=True)
 	created_at = models.DateTimeField(auto_now_add=True)
@@ -393,12 +400,42 @@ class ConsumptionEntry(models.Model):
 				condition=Q(estimated_cost__gte=0) | Q(estimated_cost__isnull=True),
 				name='consumption_entry_cost_non_negative',
 			),
+			models.CheckConstraint(
+				# Historical rows may have neither source after SET_NULL; creation requires one.
+				condition=Q(food_item__isnull=True) | Q(meal_prep_batch__isnull=True),
+				name='consumption_entry_single_source',
+			),
+			models.CheckConstraint(
+				condition=Q(meal_prep_batch__isnull=True) | Q(price_observation__isnull=True),
+				name='consumption_entry_batch_no_price_observation',
+			),
 		]
 
 	def clean(self):
+		# Require a source only for new rows so SET_NULL can preserve historical entries.
+		if self._state.adding and not self.food_item_id and not self.meal_prep_batch_id:
+			raise ValidationError({
+				'food_item': 'Select a food item or a meal-prep batch for a new entry.',
+			})
+		if self.food_item_id and self.meal_prep_batch_id:
+			raise ValidationError({
+				'meal_prep_batch': 'An entry cannot reference both a food item and a meal-prep batch.',
+			})
+		if (
+			self._state.adding
+			and self.meal_prep_batch_id
+			and self.unit != self.meal_prep_batch.yield_unit
+		):
+			raise ValidationError({
+				'unit': 'Consumption unit must match the meal-prep batch yield unit.',
+			})
 		if self.food_item and self.unit != self.food_item.nutrition_basis_unit:
 			raise ValidationError({
 				'unit': 'Consumption unit must match the food item nutrition basis.',
+			})
+		if self.meal_prep_batch_id and self.price_observation_id:
+			raise ValidationError({
+				'price_observation': 'Batch-backed entries cannot reference a price observation.',
 			})
 		if self.price_observation and self.food_item_id != self.price_observation.food_item_id:
 			raise ValidationError({

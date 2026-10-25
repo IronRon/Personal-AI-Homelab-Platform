@@ -6,7 +6,7 @@
   {% include 'food/_navigation.html' %}
   <section class="hero">
     <h1>Food History</h1>
-    <p>Review and correct recorded historical snapshots for a local reporting date. Date and meal-category edits preserve snapshots; changing the food, quantity, unit, or price requires deliberate recalculation.</p>
+    <p>Review and correct recorded historical snapshots for a local reporting date. Date and meal-category edits preserve snapshots; changing FoodItem-backed sources requires deliberate recalculation. Batch-backed entries are metadata-only editable.</p>
     <div class="actions">
       <a href="{% url 'consumption_create' %}" class="button">Log food or drink</a>
       <a href="{% url 'food_today' %}?date={{ reporting_date|date:'Y-m-d' }}" class="button secondary">Today view</a>
@@ -35,7 +35,7 @@
                 <td>{{ entry.quantity }} {{ entry.unit }}</td>
                 <td>{{ entry.calories|default_if_none:'—' }}</td>
                 <td>{{ entry.protein|default_if_none:'—' }} g</td>
-                <td>{{ entry.estimated_cost|default_if_none:'—' }}{% if entry.estimated_cost %} {{ entry.currency }}{% endif %}</td>
+                <td>{% if entry.estimated_cost is not None %}{{ entry.estimated_cost }} {{ entry.currency }}{% else %}—{% endif %}</td>
                 <td>
                   <div class="actions compact-actions">
                     <a href="{% url 'consumption_edit' entry.pk %}">Edit</a>

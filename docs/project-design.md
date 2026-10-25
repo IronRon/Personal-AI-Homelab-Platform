@@ -200,7 +200,7 @@ The IDs below are useful for discussion and testing; they are not a complete spe
 
 ### Scope
 
-**First implemented domain, with additional work ongoing.** Food is a server-rendered Django app in the existing modular monolith. Its UI covers catalogue, consumption, Recipe management, and Meal Prep Batch listing, creation, and read-only historical detail. Batch-backed consumption is not implemented.
+**First implemented domain, with additional work ongoing.** Food is a server-rendered Django app in the existing modular monolith. Its UI covers catalogue, consumption, Recipe management, and Meal Prep Batch listing, creation, read-only historical detail, and logging an amount from a saved batch as consumed.
 
 The detailed, living specification is maintained in [docs/modules/food-design.md](modules/food-design.md). This document provides the wider platform architecture and principles; the module document records Food-specific requirements, decisions, open questions, milestones, and acceptance criteria.
 
@@ -212,10 +212,11 @@ The detailed, living specification is maintained in [docs/modules/food-design.md
 - `MealPrepBatch` represents a cooking event. Its actual inputs are stored as `BatchIngredient` rows with copied names, nutrient contributions, cost, currency, and provenance.
 - Batch totals are calculated from those stored ingredient snapshots only. Later FoodItem, PriceObservation, or Recipe changes do not silently alter historical batch values.
 - Recipe estimates and batch totals report component completeness independently; mixed currencies are not added together, and batch creation rejects mixed known-cost currencies.
-- `ConsumptionEntry` remains the unified consumption log, but it does not yet reference MealPrepBatch records.
+- `ConsumptionEntry` is the unified consumption log for FoodItem and MealPrepBatch sources. Batch consumption scales saved batch snapshots by the amount consumed and stores the resulting historical values; it does not recalculate from current catalogue data.
+- The optional batch reference uses `SET_NULL`: deleting a batch preserves the consumption entry's source name and nutrition/cost snapshots. Batch-backed entries remain protected from catalogue-based recalculation.
 - Recipe and batch models/services use the current Django app, database, and service patterns. No worker, queue, AI runtime, MCP integration, external database, or separate service was added for this feature.
 
-Batch editing/deletion/recalculation, batch-backed consumption integration, count-based portions, and arbitrary manual total overrides remain deferred. Recipe plans can be loaded into editable actual ingredient rows during batch creation.
+Recipe plans can be loaded into editable actual ingredient rows during batch creation. Basic purchase history, quick-add meals, cumulative batch availability/inventory, batch editing/recalculation, count-based portions and conversions, and arbitrary manual total overrides remain deferred. AI/API integration and final MVP desktop/mobile polish are also outstanding.
 
 ### Candidate entities
 
