@@ -84,6 +84,18 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 
 Basic purchase history, quick-add meals/foods, cumulative batch availability/inventory, batch editing/recalculation, portions/count units/conversions, and AI/API integration remain deferred. Final MVP polish and full desktop/mobile review also remain outstanding.
 
+### Follow-on: Food Purchase and Cost History
+
+**Status: Implemented on 2026-10-25.** This follow-on adds a minimal actual-spend record and read-only cost timeline without introducing inventory or accounting behavior.
+
+- Added `FoodPurchase` for a description, purchase timestamp, amount paid, currency, and optional FoodItem, quantity/unit, and shop/source. It is separate from `PriceObservation`, `ConsumptionEntry`, and MealPrepBatch snapshots.
+- Added a purchase form, single-local-date Cost History page, and Food navigation link. The timeline labels actual purchases, estimated Meal Prep cost, ordinary consumption cost, and batch consumption separately.
+- Today shows actual purchases separately from estimated consumed-food cost; both use currency-specific totals and never combine unlike currencies. Saving a purchase does not create consumption, and consumption/Meal Prep does not create purchases.
+- Verification: `python manage.py check` passed; `python manage.py makemigrations --check --dry-run` reported no changes; `python manage.py test apps.food` passed with 116 tests; `python manage.py test apps.core apps.food` passed with 118 tests; `git diff --check` passed.
+- Migration 0004 adds `FoodPurchase`. Current `showmigrations food` reports 0001–0003 applied and 0004 unapplied; no migration was applied during this implementation.
+
+Receipt grouping/imports, bank/Finance accounting, budgets, purchase-to-inventory linkage, cumulative batch availability, and full desktop/mobile review remain deferred.
+
 - `README.md` — existing setup and project structure; update only if the implemented workflow makes the development instructions materially stale.
 - `backend/apps/food/models.py` — minimum persistent Food models and validation.
 - `backend/apps/food/services/` — reusable nutrition, cost, and daily aggregation logic; create only the smallest service files needed.

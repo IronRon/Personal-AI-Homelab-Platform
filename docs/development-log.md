@@ -2,6 +2,48 @@
 
 This is the chronological record of meaningful development work on the Personal AI Homelab Platform. Entries are newest first. Design documents describe intended requirements and rationale; this log records work actually performed and verification evidence.
 
+## 2026-10-25 — Food Purchase and Cost History
+
+**Area:** Food / Purchase and Cost History
+
+**Summary:**
+Added a minimal actual Food purchase record and a Cost History view that keeps purchases distinct from estimated Meal Prep and consumption costs.
+
+**Completed:**
+
+- Added `FoodPurchase` with description, purchase timestamp, actual amount/currency, and optional FoodItem, quantity/unit, and source.
+- Added purchase creation and a local-date Cost History timeline with distinct PURCHASE, MEAL PREP, CONSUMPTION, and ATE FROM BATCH events.
+- Today now shows actual purchase totals separately from estimated consumed cost, grouped by currency.
+- Added focused model/form/service, event-classification, date-filter, Today separation, and no-double-counting tests.
+
+**Technical decisions:**
+
+- `PriceObservation` remains catalogue pricing, not proof of purchase. Saving a purchase creates no consumption entry; consuming food or creating/eating a Batch creates no purchase record.
+- Meal Prep and consumption values remain estimated snapshot events. They never add to actual purchase spending, and currencies are not converted or combined.
+- Migration `0004_foodpurchase` is additive. It was not applied during this implementation.
+
+**Testing and verification:**
+
+- `python manage.py check` passed.
+- `python manage.py makemigrations --check --dry-run` reported no changes.
+- `python manage.py test apps.food` passed: 116 tests.
+- `python manage.py test apps.core apps.food` passed: 118 tests.
+- `git diff --check` passed.
+- `showmigrations food` reported migrations 0001–0003 applied and 0004 unapplied.
+- Full browser and desktop/mobile review were not performed.
+
+**Known issues / deferred work:**
+
+- Receipt grouping/imports, bank/Finance accounting, budgets, purchase-to-inventory links, stock depletion, quick-add meals, cumulative Batch availability, portions/conversions, AI/API work, and final MVP polish remain deferred.
+
+**Next steps:**
+
+- Continue Food MVP polish and later evaluate the deferred Finance and inventory boundaries separately.
+
+**Git status:**
+
+- Implementation and documentation changes are uncommitted; no staging, commit, or push was performed.
+
 ## 2026-10-25 — Meal Prep Batch UI and Consumption
 
 **Area:** Food / Meal Prep UI

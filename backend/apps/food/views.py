@@ -15,6 +15,7 @@ from .forms import (
     ConsumptionMetadataForm,
     ConsumptionEntryForm,
     FoodItemForm,
+    FoodPurchaseForm,
     MealPrepBatchForm,
     PriceObservationForm,
     RecipeForm,
@@ -33,6 +34,7 @@ from .services.calculations import (
     calculate_recipe_estimate,
     select_price_observation,
 )
+from .services.cost_history import get_food_cost_events_for_date
 from .services.consumption import (
     create_batch_consumption_entry,
     create_consumption_entry,
@@ -42,6 +44,10 @@ from .services.consumption import (
     update_consumption_entry,
 )
 from .services.meal_prep import BatchIngredientInput, create_meal_prep_batch
+from .services.purchases import (
+    create_food_purchase,
+    get_purchase_totals_for_date,
+)
 
 
 def catalogue(request):
@@ -474,12 +480,41 @@ def food_today(request):
     reporting_date = _reporting_date(request)
     entries = get_consumption_entries_for_date(reporting_date)
     summary = get_daily_summary(reporting_date)
+    purchases_by_currency = get_purchase_totals_for_date(reporting_date)
     return render(
         request,
         'food/today.html',
         {
             'entries': entries,
             'summary': summary,
+            'purchases_by_currency': purchases_by_currency,
+            'reporting_date': reporting_date,
+        },
+    )
+
+
+def food_purchase_create(request):
+    form = FoodPurchaseForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            purchase = create_food_purchase(**form.cleaned_data)
+        except (ValidationError, ValueError):
+            form.add_error(None, 'Purchase could not be saved. Check the purchase details and try again.')
+        else:
+            messages.success(request, f'{purchase.description} was recorded as a purchase.')
+            purchase_date = timezone.localtime(purchase.purchased_at).date().isoformat()
+            return redirect(f'{reverse("food_cost_history")}?date={purchase_date}')
+    return render(request, 'food/food_purchase_form.html', {'form': form})
+
+
+def food_cost_history(request):
+    reporting_date = _reporting_date(request)
+    events = get_food_cost_events_for_date(reporting_date)
+    return render(
+        request,
+        'food/cost_history.html',
+        {
+            'events': events,
             'reporting_date': reporting_date,
         },
     )

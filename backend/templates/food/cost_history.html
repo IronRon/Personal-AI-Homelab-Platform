@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+
+{% block title %}Food Cost History | Food{% endblock %}
+
+{% block content %}
+  {% include 'food/_navigation.html' %}
+  <section class="hero">
+    <h1>Food Cost History</h1>
+    <p>Actual purchases are separate from estimated batch and consumption costs. Entries are not combined across currencies.</p>
+    <div class="actions">
+      <a href="{% url 'food_purchase_create' %}" class="button">Record purchase</a>
+      <a href="{% url 'food_today' %}?date={{ reporting_date|date:'Y-m-d' }}" class="button secondary">Today</a>
+    </div>
+  </section>
+
+  <section class="page-shell">
+    <form method="get" class="date-picker">
+      <label for="cost-history-date">Date</label>
+      <input id="cost-history-date" type="date" name="date" value="{{ reporting_date|date:'Y-m-d' }}" />
+      <button type="submit" class="button">Show date</button>
+    </form>
+
+    {% if events %}
+      <div style="overflow-x: auto;">
+        <table class="data-table">
+          <thead>
+            <tr><th>Time</th><th>Event</th><th>Description</th><th>Quantity</th><th>Cost</th><th>Shop / source</th></tr>
+          </thead>
+          <tbody>
+            {% for event in events %}
+              <tr>
+                <td>{{ event.occurred_at|date:'H:i' }}</td>
+                <td>
+                  {% if event.event_type == 'PURCHASE' %}<span class="pill">PURCHASE</span>
+                  {% elif event.event_type == 'MEAL PREP' %}<span class="pill ghost">MEAL PREP</span>
+                  {% elif event.event_type == 'ATE FROM BATCH' %}<span class="pill ghost">ATE FROM BATCH</span>
+                  {% else %}<span class="pill ghost">CONSUMPTION</span>{% endif %}
+                </td>
+                <td>{{ event.description }}</td>
+                <td>{% if event.quantity is not None %}{{ event.quantity }} {{ event.unit }}{% else %}—{% endif %}</td>
+                <td>
+                  {% if event.amount is not None %}{{ event.amount_label }}: {{ event.amount }} {{ event.currency }}
+                  {% else %}{{ event.amount_label }}{% endif %}
+                </td>
+                <td>{{ event.source|default:'—' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="empty-state">No purchases, batch preparations, or consumption costs for this date.</p>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
@@ -14,6 +14,7 @@ from .forms import (
     BatchIngredientFormSet,
     ConsumptionEntryForm,
     FoodItemForm,
+    FoodPurchaseForm,
     MealPrepBatchForm,
     PriceObservationForm,
     RecipeForm,
@@ -23,6 +24,8 @@ from .models import (
     BatchIngredient,
     ConsumptionEntry,
     FoodItem,
+    FoodPurchase,
+    FoodPurchase,
     MealPrepBatch,
     PriceObservation,
     Recipe,
@@ -45,6 +48,8 @@ from .services.consumption import (
     update_consumption_entry,
 )
 from .services.meal_prep import BatchIngredientInput, create_meal_prep_batch
+from .services.purchases import create_food_purchase, get_purchase_totals_for_date
+from .services.cost_history import get_food_cost_events_for_date
 
 
 class FoodModelTests(TestCase):
@@ -488,6 +493,279 @@ class CatalogueWorkflowTests(TestCase):
         price.refresh_from_db()
         self.assertEqual(price.paid_price, Decimal('2.25'))
         self.assertEqual(price.source, 'updated shop')
+
+
+class FoodPurchaseModelTests(TestCase):
+    def setUp(self):
+        self.food_item = FoodItem.objects.create(
+            name='Oats',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+        )
+
+    def test_purchase_accepts_description_without_catalogue_item_or_quantity(self):
+        purchase = FoodPurchase(
+            description='Canteen lunch',
+            purchased_at=timezone.now(),
+            amount_paid=Decimal('7.00'),
+            currency='EUR',
+            source='Work canteen',
+        )
+        purchase.full_clean()
+
+        self.assertIsNone(purchase.food_item)
+        self.assertIsNone(purchase.quantity)
+        self.assertEqual(purchase.unit, '')
+
+    def test_purchase_quantity_and_unit_must_be_provided_together(self):
+        purchase = FoodPurchase(
+            description='Oats',
+            amount_paid=Decimal('4.50'),
+            currency='EUR',
+            food_item=self.food_item,
+            quantity=Decimal('1000'),
+        )
+
+        with self.assertRaises(ValidationError):
+            purchase.full_clean()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                FoodPurchase.objects.create(
+                    description='Invalid quantity',
+                    amount_paid=Decimal('1.00'),
+                    currency='EUR',
+                    quantity=Decimal('1000'),
+                    unit='',
+                )
+
+    def test_purchase_unit_matches_catalogue_basis_when_item_is_selected(self):
+        purchase = FoodPurchase(
+            description='Oats',
+            amount_paid=Decimal('4.50'),
+            currency='EUR',
+            food_item=self.food_item,
+            quantity=Decimal('1000'),
+            unit=FoodItem.MILLILITRES,
+        )
+
+        with self.assertRaises(ValidationError):
+            purchase.full_clean()
+
+    def test_purchase_form_accepts_actual_spend_and_rejects_unpaired_quantity(self):
+        valid = FoodPurchaseForm(data={
+            'description': 'KFC meal',
+            'food_item': '',
+            'purchased_at': '2026-10-25T12:30',
+            'amount_paid': '12.00',
+            'currency': 'EUR',
+            'quantity': '',
+            'unit': '',
+            'source': 'KFC',
+        })
+        self.assertTrue(valid.is_valid(), valid.errors)
+
+        invalid = FoodPurchaseForm(data={
+            'description': 'Oats',
+            'food_item': str(self.food_item.pk),
+            'purchased_at': '2026-10-25T12:30',
+            'amount_paid': '4.50',
+            'currency': 'EUR',
+            'quantity': '1000',
+            'unit': '',
+            'source': 'Shop',
+        })
+        self.assertFalse(invalid.is_valid())
+        self.assertIn('quantity', invalid.errors)
+
+
+class FoodPurchaseServiceTests(TestCase):
+    def test_purchase_service_records_actual_spend_without_creating_consumption(self):
+        purchase = create_food_purchase(
+            description='Canteen lunch',
+            amount_paid=Decimal('7.00'),
+            currency='EUR',
+            purchased_at=timezone.make_aware(
+                datetime(2026, 10, 25, 12, 30),
+                timezone.get_current_timezone(),
+            ),
+            source='Work canteen',
+        )
+
+        self.assertEqual(purchase.description, 'Canteen lunch')
+        self.assertEqual(purchase.amount_paid, Decimal('7.00'))
+        self.assertEqual(purchase.currency, 'EUR')
+        self.assertFalse(ConsumptionEntry.objects.exists())
+        self.assertFalse(PriceObservation.objects.exists())
+
+    def test_purchase_totals_are_grouped_per_currency_and_local_date(self):
+        local_tz = timezone.get_current_timezone()
+        create_food_purchase(
+            description='Groceries',
+            amount_paid=Decimal('20.00'),
+            currency='EUR',
+            purchased_at=timezone.make_aware(datetime(2026, 10, 25, 10, 0), local_tz),
+        )
+        create_food_purchase(
+            description='Meal',
+            amount_paid=Decimal('12.00'),
+            currency='GBP',
+            purchased_at=timezone.make_aware(datetime(2026, 10, 25, 11, 0), local_tz),
+        )
+        create_food_purchase(
+            description='Yesterday',
+            amount_paid=Decimal('5.00'),
+            currency='EUR',
+            purchased_at=timezone.make_aware(datetime(2026, 10, 24, 11, 0), local_tz),
+        )
+
+        totals = get_purchase_totals_for_date(date(2026, 10, 25))
+
+        self.assertEqual(totals, {'EUR': Decimal('20.00'), 'GBP': Decimal('12.00')})
+
+
+class FoodCostHistoryWorkflowTests(TestCase):
+    def setUp(self):
+        self.food_item = FoodItem.objects.create(
+            name='Chicken',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+            calories_per_100=Decimal('200'),
+        )
+        self.price = PriceObservation.objects.create(
+            food_item=self.food_item,
+            package_quantity=Decimal('1000'),
+            package_unit=FoodItem.GRAMS,
+            paid_price=Decimal('10.00'),
+            currency='EUR',
+            source='Grocery receipt',
+        )
+
+    def test_purchase_form_view_creates_purchase_without_consumption_or_price_change(self):
+        response = self.client.post(reverse('food_purchase_create'), {
+            'description': 'KFC Meal',
+            'food_item': '',
+            'purchased_at': '2026-10-25T09:00',
+            'amount_paid': '12.00',
+            'currency': 'EUR',
+            'quantity': '',
+            'unit': '',
+            'source': 'KFC',
+        })
+
+        purchase = FoodPurchase.objects.get(description='KFC Meal')
+        self.assertRedirects(
+            response,
+            f'{reverse("food_cost_history")}?date=2026-10-25',
+        )
+        self.assertEqual(purchase.amount_paid, Decimal('12.00'))
+        self.assertEqual(purchase.source, 'KFC')
+        self.assertFalse(ConsumptionEntry.objects.exists())
+        self.assertEqual(self.food_item.price_observations.get(), self.price)
+
+    def test_cost_history_distinguishes_purchase_batch_and_batch_consumption(self):
+        local_tz = timezone.get_current_timezone()
+        create_food_purchase(
+            description='Canteen lunch',
+            amount_paid=Decimal('7.00'),
+            currency='EUR',
+            purchased_at=timezone.make_aware(datetime(2026, 10, 25, 9, 0), local_tz),
+            source='Work canteen',
+        )
+        batch = create_meal_prep_batch(
+            name='Chicken & Rice',
+            cooked_at=timezone.make_aware(datetime(2026, 10, 25, 10, 0), local_tz),
+            yield_quantity=Decimal('1000'),
+            yield_unit=FoodItem.GRAMS,
+            ingredients=[BatchIngredientInput(
+                food_item=self.food_item,
+                quantity=Decimal('1000'),
+                unit=FoodItem.GRAMS,
+                price_observation=self.price,
+            )],
+        )
+        create_batch_consumption_entry(
+            batch,
+            consumed_quantity=Decimal('250'),
+            unit=FoodItem.GRAMS,
+            consumed_at=timezone.make_aware(datetime(2026, 10, 25, 12, 0), local_tz),
+        )
+
+        events = get_food_cost_events_for_date(date(2026, 10, 25))
+        self.assertEqual([event.event_type for event in events], [
+            'ATE FROM BATCH', 'MEAL PREP', 'PURCHASE',
+        ])
+        self.assertEqual(events[0].amount, Decimal('2.50'))
+        self.assertEqual(events[1].amount, Decimal('10.00'))
+        self.assertEqual(events[2].amount, Decimal('7.00'))
+        self.assertEqual(FoodPurchase.objects.count(), 1)
+
+        response = self.client.get(reverse('food_cost_history'), {'date': '2026-10-25'})
+        self.assertContains(response, 'ATE FROM BATCH')
+        self.assertContains(response, 'MEAL PREP')
+        self.assertContains(response, 'PURCHASE')
+        self.assertContains(response, '10.00 EUR')
+        self.assertContains(response, '2.50 EUR')
+        self.assertContains(response, '7.00 EUR')
+
+    def test_cost_history_excludes_other_dates(self):
+        create_food_purchase(
+            description='Yesterday purchase',
+            amount_paid=Decimal('5.00'),
+            currency='EUR',
+            purchased_at=timezone.make_aware(
+                datetime(2026, 10, 24, 9, 0),
+                timezone.get_current_timezone(),
+            ),
+        )
+
+        response = self.client.get(reverse('food_cost_history'), {'date': '2026-10-25'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No purchases, batch preparations, or consumption costs')
+        self.assertNotContains(response, 'Yesterday purchase')
+
+    def test_food_item_consumption_is_a_consumption_event_not_a_purchase(self):
+        entry = create_consumption_entry(
+            food_item=self.food_item,
+            quantity=Decimal('250'),
+            unit=FoodItem.GRAMS,
+            consumed_at=timezone.make_aware(
+                datetime(2026, 10, 25, 13, 0),
+                timezone.get_current_timezone(),
+            ),
+            price_observation=self.price,
+        )
+
+        events = get_food_cost_events_for_date(date(2026, 10, 25))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].event_type, 'CONSUMPTION')
+        self.assertEqual(events[0].amount, entry.estimated_cost)
+        self.assertFalse(FoodPurchase.objects.exists())
+
+    def test_today_shows_purchases_separately_from_estimated_consumption(self):
+        local_tz = timezone.get_current_timezone()
+        create_food_purchase(
+            description='KFC Meal',
+            amount_paid=Decimal('12.00'),
+            currency='EUR',
+            purchased_at=timezone.make_aware(datetime(2026, 10, 25, 9, 0), local_tz),
+        )
+        create_consumption_entry(
+            food_item=self.food_item,
+            quantity=Decimal('250'),
+            unit=FoodItem.GRAMS,
+            consumed_at=timezone.make_aware(datetime(2026, 10, 25, 12, 0), local_tz),
+            price_observation=self.price,
+        )
+
+        response = self.client.get(reverse('food_today'), {'date': '2026-10-25'})
+
+        self.assertContains(response, 'Food purchased')
+        self.assertContains(response, 'Estimated consumed cost')
+        self.assertContains(response, '12.00 EUR')
+        self.assertContains(response, '2.50 EUR')
 
 
 class ConsumptionWorkflowTests(TestCase):
@@ -2607,7 +2885,7 @@ class BatchConsumptionWorkflowTests(TestCase):
 
 class ConsumptionBatchMigrationTests(TransactionTestCase):
     migrate_from = ('food', '0002_recipe_mealprepbatch_recipeingredient_and_more')
-    migrate_to = ('food', '0003_consumptionentry_meal_prep_batch_and_more')
+    migrate_to = ('food', '0004_foodpurchase')
 
     def tearDown(self):
         MigrationExecutor(connection).migrate([self.migrate_to])

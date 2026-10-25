@@ -138,6 +138,65 @@ class PriceObservation(models.Model):
 		return f'{self.food_item} - {self.paid_price} {self.currency}'
 
 
+class FoodPurchase(models.Model):
+	"""A simple record of money actually spent on food."""
+
+	description = models.CharField(max_length=200)
+	food_item = models.ForeignKey(
+		FoodItem,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='purchases',
+	)
+	purchased_at = models.DateTimeField(default=timezone.now)
+	amount_paid = models.DecimalField(
+		max_digits=10,
+		decimal_places=2,
+		validators=[MinValueValidator(Decimal('0'))],
+	)
+	currency = models.CharField(max_length=3, default='EUR')
+	quantity = models.DecimalField(
+		max_digits=10,
+		decimal_places=3,
+		null=True,
+		blank=True,
+		validators=[MinValueValidator(Decimal('0.001'))],
+	)
+	unit = models.CharField(max_length=2, choices=FoodItem.BASIS_UNITS, blank=True)
+	source = models.CharField(max_length=120, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ('-purchased_at', '-id')
+		constraints = [
+			models.CheckConstraint(
+				condition=Q(amount_paid__gte=0),
+				name='food_purchase_amount_non_negative',
+			),
+			models.CheckConstraint(
+				condition=(
+					Q(quantity__isnull=True, unit='')
+					| Q(quantity__gt=0, unit__in=[FoodItem.GRAMS, FoodItem.MILLILITRES])
+				),
+				name='food_purchase_quantity_unit_pair',
+			),
+		]
+
+	def clean(self):
+		if (self.quantity is None) != (self.unit == ''):
+			raise ValidationError({
+				'quantity': 'Purchase quantity and unit must be provided together.',
+			})
+		if self.food_item_id and self.unit and self.unit != self.food_item.nutrition_basis_unit:
+			raise ValidationError({
+				'unit': 'Purchase unit must match the selected food item nutrition basis.',
+			})
+
+	def __str__(self):
+		return self.description
+
+
 class Recipe(models.Model):
 	"""Reusable plan whose nutrition and cost estimates follow current catalogue data."""
 

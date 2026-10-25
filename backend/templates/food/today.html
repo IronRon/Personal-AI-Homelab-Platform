@@ -11,6 +11,7 @@
       <a href="{% url 'consumption_create' %}" class="button">Log food or drink</a>
       <a href="{% url 'catalogue' %}" class="button secondary">Food catalogue</a>
       <a href="{% url 'food_history' %}?date={{ reporting_date|date:'Y-m-d' }}" class="button secondary">History</a>
+      <a href="{% url 'food_cost_history' %}?date={{ reporting_date|date:'Y-m-d' }}" class="button secondary">Cost History</a>
     </div>
   </section>
 
@@ -40,6 +41,16 @@
               {{ amount }} {{ currency }}{% if not summary.cost_complete %} partial{% endif %}{% if not forloop.last %}<br>{% endif %}
             {% endfor %}
           {% elif summary.cost_complete %}—{% else %}Incomplete{% endif %}
+        </strong>
+      </article>
+      <article class="summary-card">
+        <span>Food purchased</span>
+        <strong>
+          {% if purchases_by_currency %}
+            {% for currency, amount in purchases_by_currency.items %}
+              {{ amount }} {{ currency }}{% if not forloop.last %}<br>{% endif %}
+            {% endfor %}
+          {% else %}No purchases{% endif %}
         </strong>
       </article>
     </div>

@@ -6,6 +6,7 @@ from decimal import Decimal
 from .models import (
     ConsumptionEntry,
     FoodItem,
+    FoodPurchase,
     MealPrepBatch,
     PriceObservation,
     Recipe,
@@ -288,6 +289,53 @@ class PriceObservationForm(forms.ModelForm):
                 'Package unit must match this food item nutrition basis.'
             )
         return package_unit
+
+
+class FoodPurchaseForm(forms.ModelForm):
+    purchased_at = forms.DateTimeField(
+        input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M',
+            attrs={'type': 'datetime-local'},
+        ),
+        label='Purchase date and time',
+    )
+
+    class Meta:
+        model = FoodPurchase
+        fields = [
+            'description',
+            'food_item',
+            'purchased_at',
+            'amount_paid',
+            'currency',
+            'quantity',
+            'unit',
+            'source',
+        ]
+        labels = {
+            'description': 'What did you buy?',
+            'food_item': 'Catalogue item (optional)',
+            'amount_paid': 'Amount paid',
+            'currency': 'Currency',
+            'quantity': 'Purchased quantity (optional)',
+            'unit': 'Unit (optional)',
+            'source': 'Shop or source (optional)',
+        }
+        widgets = {
+            'amount_paid': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+            'quantity': forms.NumberInput(attrs={'step': '0.001', 'min': '0.001'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['food_item'].required = False
+        self.fields['food_item'].queryset = FoodItem.objects.order_by('name', 'brand')
+        self.fields['currency'].initial = 'EUR'
+        if not self.is_bound and not self.initial.get('purchased_at'):
+            self.initial['purchased_at'] = timezone.localtime(
+                timezone.now(),
+            ).strftime('%Y-%m-%dT%H:%M')
 
 
 class ConsumptionEntryForm(forms.ModelForm):

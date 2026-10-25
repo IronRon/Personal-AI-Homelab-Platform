@@ -36,6 +36,17 @@ class DailyTotals:
     fat_complete: bool
 
 
+def aggregate_purchase_costs(purchases: Iterable) -> dict[str, Decimal]:
+    """Group actual purchase amounts by currency without mixing currencies."""
+    totals: dict[str, Decimal] = {}
+    for purchase in purchases:
+        totals[purchase.currency] = totals.get(purchase.currency, Decimal('0')) + purchase.amount_paid
+    return {
+        currency: _quantize(amount, MONEY_QUANTUM)
+        for currency, amount in sorted(totals.items())
+    }
+
+
 @dataclass(frozen=True)
 class RecipeEstimate:
     calories: Decimal

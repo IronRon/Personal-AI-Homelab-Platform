@@ -200,7 +200,7 @@ The IDs below are useful for discussion and testing; they are not a complete spe
 
 ### Scope
 
-**First implemented domain, with additional work ongoing.** Food is a server-rendered Django app in the existing modular monolith. Its UI covers catalogue, consumption, Recipe management, and Meal Prep Batch listing, creation, read-only historical detail, and logging an amount from a saved batch as consumed.
+**First implemented domain, with additional work ongoing.** Food is a server-rendered Django app in the existing modular monolith. Its UI covers catalogue, consumption, Recipe management, Meal Prep Batch workflows, and simple Food Purchase/Cost History.
 
 The detailed, living specification is maintained in [docs/modules/food-design.md](modules/food-design.md). This document provides the wider platform architecture and principles; the module document records Food-specific requirements, decisions, open questions, milestones, and acceptance criteria.
 
@@ -213,10 +213,11 @@ The detailed, living specification is maintained in [docs/modules/food-design.md
 - Batch totals are calculated from those stored ingredient snapshots only. Later FoodItem, PriceObservation, or Recipe changes do not silently alter historical batch values.
 - Recipe estimates and batch totals report component completeness independently; mixed currencies are not added together, and batch creation rejects mixed known-cost currencies.
 - `ConsumptionEntry` is the unified consumption log for FoodItem and MealPrepBatch sources. Batch consumption scales saved batch snapshots by the amount consumed and stores the resulting historical values; it does not recalculate from current catalogue data.
+- `FoodPurchase` records actual Food spending separately from `PriceObservation` catalogue prices and estimated consumption costs. Cost History distinguishes purchases, Meal Prep estimates, ordinary consumption, and batch consumption; Today shows purchased and consumed costs separately by currency.
 - The optional batch reference uses `SET_NULL`: deleting a batch preserves the consumption entry's source name and nutrition/cost snapshots. Batch-backed entries remain protected from catalogue-based recalculation.
 - Recipe and batch models/services use the current Django app, database, and service patterns. No worker, queue, AI runtime, MCP integration, external database, or separate service was added for this feature.
 
-Recipe plans can be loaded into editable actual ingredient rows during batch creation. Basic purchase history, quick-add meals, cumulative batch availability/inventory, batch editing/recalculation, count-based portions and conversions, and arbitrary manual total overrides remain deferred. AI/API integration and final MVP desktop/mobile polish are also outstanding.
+Recipe plans can be loaded into editable actual ingredient rows during batch creation. Accounting, receipt grouping/imports, purchase-to-inventory integration, quick-add meals, cumulative batch availability/inventory, batch editing/recalculation, count-based portions and conversions, and arbitrary manual total overrides remain deferred. AI/API integration and final MVP desktop/mobile polish are also outstanding.
 
 ### Candidate entities
 
@@ -1621,6 +1622,7 @@ This table is a summary. Important decisions should later receive individual fil
 | 0.2.0 | 2026-10-25 | Recorded the implemented Food recipe and meal-prep data foundation while retaining the provisional status of platform-wide architecture and future workflows. |
 | 0.3.0 | 2026-10-25 | Recorded Recipe list, edit, ingredient-management, and dynamic-estimate UI; Meal Prep Batch UI and batch-backed consumption remain deferred. |
 | 0.4.0 | 2026-10-25 | Recorded Meal Prep Batch list, direct/Recipe-prefilled creation, and snapshot-based read-only detail; batch-backed consumption remains deferred. |
+| 0.5.0 | 2026-10-25 | Recorded batch-backed consumption and simple Food Purchase/Cost History with separate purchase and consumption totals. |
 
 ## 23.2 Experiments and findings
 
@@ -1811,10 +1813,11 @@ The best provisional starting direction is:
 
 1. Continue recording accepted architectural decisions in ADRs; the repository and living design document already exist.
 2. Completed: add Meal Prep Batch list, creation, and read-only detail using the implemented Food data foundation.
-3. Add batch-backed `ConsumptionEntry` creation using the batch yield unit and preserve consumption snapshots.
-4. Verify the recipe, batch, and consumption workflows with focused tests and manual desktop/mobile review.
-5. Run the documented Phase 0 model and video experiments before selecting AI, queue, or video-framework technologies.
-6. Revisit Finance and other modules after the Food workflows answer real ongoing needs.
-7. Add only the infrastructure required by the next accepted feature.
+3. Completed: add batch-backed `ConsumptionEntry` creation using the batch yield unit and preserve consumption snapshots.
+4. Completed: add simple actual Food purchases and Cost History, keeping purchases separate from estimated Meal Prep and consumption costs.
+5. Complete desktop/mobile review of the recipe, batch, purchase, and consumption workflows.
+6. Run the documented Phase 0 model and video experiments before selecting AI, queue, or video-framework technologies.
+7. Revisit Finance and other modules after the Food workflows answer real ongoing needs.
+8. Add only the infrastructure required by the next accepted feature.
 
 The project should remain deliberately boring at its centre — reliable data models, service boundaries, jobs, permissions, logs, and files — so that experimental AI and media capabilities can change rapidly around it without forcing a rewrite of the whole platform.
