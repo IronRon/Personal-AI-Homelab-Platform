@@ -520,7 +520,7 @@ class QuickAddConsumptionForm(forms.Form):
             self.add_error('quantity', 'Enter both an amount and its unit, or leave both blank.')
             self.add_error('unit', 'Enter both an amount and its unit, or leave both blank.')
         if estimated_cost is not None and len(currency) != 3:
-            self.add_error('currency', 'Enter a three-letter currency when entering an estimated cost.')
+            self.add_error('currency', 'Enter a three-character currency when entering an estimated cost.')
         if estimated_cost is None:
             cleaned_data['currency'] = ''
         elif currency:

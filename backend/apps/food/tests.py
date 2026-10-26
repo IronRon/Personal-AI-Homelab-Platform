@@ -823,6 +823,13 @@ class QuickAddConsumptionWorkflowTests(TestCase):
         ))
         self.assertTrue(with_currency.is_valid(), with_currency.errors)
 
+        short_currency = QuickAddConsumptionForm(data=self._post_data(
+            estimated_cost='5.50',
+            currency='EU',
+        ))
+        self.assertFalse(short_currency.is_valid())
+        self.assertIn('currency', short_currency.errors)
+
     def test_quick_add_form_rejects_negative_estimates(self):
         form = QuickAddConsumptionForm(data=self._post_data(
             calories='-1',
@@ -854,6 +861,35 @@ class QuickAddConsumptionWorkflowTests(TestCase):
         self.assertEqual(entry.calories, Decimal('700'))
         self.assertEqual(entry.nutrition_source, 'manual estimate')
         self.assertFalse(FoodPurchase.objects.exists())
+
+    def test_quick_add_can_preserve_all_nutrition_and_cost_as_unknown(self):
+        entry = create_quick_add_entry(source_name='Unmeasured dinner')
+
+        self.assertIsNone(entry.calories)
+        self.assertIsNone(entry.protein)
+        self.assertIsNone(entry.carbohydrates)
+        self.assertIsNone(entry.fat)
+        self.assertIsNone(entry.estimated_cost)
+        self.assertEqual(entry.currency, '')
+        self.assertEqual(entry.nutrition_source, '')
+        self.assertEqual(entry.cost_source, '')
+
+    def test_quick_add_rejects_catalogue_and_batch_source_references(self):
+        food_item = FoodItem.objects.create(
+            name='Invalid quick item',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+        )
+        entry = ConsumptionEntry(
+            is_quick_add=True,
+            food_item=food_item,
+            source_name='Invalid',
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+        )
+
+        with self.assertRaises(ValidationError):
+            entry.full_clean()
 
     def test_quick_add_update_changes_estimates_without_catalogue_recalculation(self):
         entry = create_quick_add_entry(

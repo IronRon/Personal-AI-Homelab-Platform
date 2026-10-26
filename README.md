@@ -115,6 +115,21 @@ The wider design document includes a provisional target structure for future app
 
 The Django control plane currently contains a working Core home page and Food catalogue, consumption tracking with one-off Quick Add meals, Recipe and Meal Prep workflows, and simple Food Purchase and Cost History views. Actual purchases are recorded separately from estimated batch and consumption costs. Accounting, receipt imports, inventory, and other platform modules remain future work. Architecture choices not explicitly accepted in the design documents remain provisional.
 
+## Food MVP Showcase
+
+Representative Food screens using synthetic development data:
+
+<table>
+    <tr>
+        <td><img src="img/food-today.png" alt="Food Today showing logged meals, incomplete nutrition, and separate purchase and consumed-cost totals" /></td>
+        <td><img src="img/food-catalogue.png" alt="Food Catalogue search results for Oats" /></td>
+    </tr>
+    <tr>
+        <td><img src="img/food-item-detail.png" alt="Oats detail with nutrition snapshots and price history" /></td>
+        <td><img src="img/food-cost-history.png" alt="Food Cost History distinguishing purchases from estimated consumption costs" /></td>
+    </tr>
+</table>
+
 ## Development setup
 
 ### Python requirements
