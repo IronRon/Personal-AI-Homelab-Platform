@@ -82,7 +82,7 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 - User-reported implementation-run verification: `python manage.py check` passed; `python manage.py makemigrations --check --dry-run` reported no changes; Food tests passed (105); Core + Food tests passed (107); `git diff --check` passed; the migration compatibility test passed; and 300 g from a 1,200 g / 2,400 kcal batch produced 600 kcal.
 - User reported migrations 0001-0003 all unapplied in the development database; none were applied. These implementation checks were not rerun during this documentation sync.
 
-Basic purchase history, quick-add meals/foods, cumulative batch availability/inventory, batch editing/recalculation, portions/count units/conversions, and AI/API integration remain deferred. Final MVP polish and full desktop/mobile review also remain outstanding.
+At that milestone, quick-add meals, cumulative batch availability/inventory, batch editing/recalculation, portions/count units/conversions, and AI/API integration remained deferred. Quick Add is implemented in a later follow-on below. Final MVP polish and full desktop/mobile review remain outstanding.
 
 ### Follow-on: Food Purchase and Cost History
 
@@ -95,6 +95,18 @@ Basic purchase history, quick-add meals/foods, cumulative batch availability/inv
 - Migration 0004 adds `FoodPurchase`. Current `showmigrations food` reports 0001–0003 applied and 0004 unapplied; no migration was applied during this implementation.
 
 Receipt grouping/imports, bank/Finance accounting, budgets, purchase-to-inventory linkage, cumulative batch availability, and full desktop/mobile review remain deferred.
+
+### Follow-on: Quick Add consumption
+
+**Status: Implemented on 2026-10-26.** This follow-on records one-off meals as consumption without requiring a reusable FoodItem.
+
+- Added an explicit `ConsumptionEntry.is_quick_add` marker so marked Quick Add rows remain distinguishable from historical FoodItem/Batch rows whose source FK became null through `SET_NULL`.
+- Quick Add accepts a meal name, local date/time, optional category, optional nonnegative nutrition/cost estimates, and optional measured quantity/unit. Quantity and unit are either both absent or a positive `g`/`ml` pair.
+- Quick Add stores manual-estimate provenance, creates no FoodItem or FoodPurchase, and appears as `QUICK ADD` in Cost History while contributing only to estimated consumed cost.
+- Quick Add edits directly replace entered estimates; catalogue recalculation is not offered. Existing FoodItem and Batch edits remain unchanged, and deletion stays POST-only.
+- Migration 0005 adds the marker and permits null quantity/unit only for Quick Add. It is unapplied in the current development database.
+
+Receipt processing/OCR, AI estimation, restaurant integrations, automatic purchase creation, reusable FoodItem promotion, inventory, portions/count units/conversions, and full desktop/mobile review remain deferred.
 
 - `README.md` — existing setup and project structure; update only if the implemented workflow makes the development instructions materially stale.
 - `backend/apps/food/models.py` — minimum persistent Food models and validation.

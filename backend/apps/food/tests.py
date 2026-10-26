@@ -15,6 +15,7 @@ from .forms import (
     ConsumptionEntryForm,
     FoodItemForm,
     FoodPurchaseForm,
+    QuickAddConsumptionForm,
     MealPrepBatchForm,
     PriceObservationForm,
     RecipeForm,
@@ -24,9 +25,8 @@ from .models import (
     BatchIngredient,
     ConsumptionEntry,
     FoodItem,
-    FoodPurchase,
-    FoodPurchase,
     MealPrepBatch,
+    FoodPurchase,
     PriceObservation,
     Recipe,
     RecipeIngredient,
@@ -44,6 +44,8 @@ from .services.consumption import (
     create_consumption_entry,
     get_consumption_entries_for_date,
     get_daily_summary,
+    create_quick_add_entry,
+    update_quick_add_entry,
     recalculate_consumption_entry,
     update_consumption_entry,
 )
@@ -766,6 +768,191 @@ class FoodCostHistoryWorkflowTests(TestCase):
         self.assertContains(response, 'Estimated consumed cost')
         self.assertContains(response, '12.00 EUR')
         self.assertContains(response, '2.50 EUR')
+
+
+class QuickAddConsumptionWorkflowTests(TestCase):
+    def _post_data(self, **overrides):
+        data = {
+            'source_name': 'Family dinner',
+            'consumed_at': '2026-10-25T19:00',
+            'meal_category': 'dinner',
+            'quantity': '',
+            'unit': '',
+            'calories': '700',
+            'protein': '',
+            'carbohydrates': '',
+            'fat': '',
+            'estimated_cost': '',
+            'currency': '',
+        }
+        data.update(overrides)
+        return data
+
+    def test_quick_add_form_accepts_missing_quantity_and_partial_nutrition(self):
+        form = QuickAddConsumptionForm(data=self._post_data())
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIsNone(form.cleaned_data['quantity'])
+        self.assertEqual(form.cleaned_data['calories'], Decimal('700'))
+        self.assertIsNone(form.cleaned_data['protein'])
+
+    def test_quick_add_form_requires_paired_measured_quantity_and_unit(self):
+        missing_unit = QuickAddConsumptionForm(data=self._post_data(quantity='300'))
+        self.assertFalse(missing_unit.is_valid())
+        self.assertIn('unit', missing_unit.errors)
+
+        measured = QuickAddConsumptionForm(data=self._post_data(
+            quantity='300',
+            unit=FoodItem.GRAMS,
+        ))
+        self.assertTrue(measured.is_valid(), measured.errors)
+
+    def test_quick_add_form_requires_currency_only_when_cost_is_entered(self):
+        no_cost = QuickAddConsumptionForm(data=self._post_data())
+        self.assertTrue(no_cost.is_valid(), no_cost.errors)
+        self.assertIsNone(no_cost.cleaned_data['estimated_cost'])
+        self.assertEqual(no_cost.cleaned_data['currency'], '')
+
+        missing_currency = QuickAddConsumptionForm(data=self._post_data(estimated_cost='5.50'))
+        self.assertFalse(missing_currency.is_valid())
+        self.assertIn('currency', missing_currency.errors)
+
+        with_currency = QuickAddConsumptionForm(data=self._post_data(
+            estimated_cost='5.50',
+            currency='GBP',
+        ))
+        self.assertTrue(with_currency.is_valid(), with_currency.errors)
+
+    def test_quick_add_form_rejects_negative_estimates(self):
+        form = QuickAddConsumptionForm(data=self._post_data(
+            calories='-1',
+            estimated_cost='-0.01',
+            currency='EUR',
+        ))
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('calories', form.errors)
+        self.assertIn('estimated_cost', form.errors)
+
+    def test_quick_add_service_marks_source_and_does_not_create_purchase(self):
+        entry = create_quick_add_entry(
+            source_name='Family dinner',
+            consumed_at=timezone.make_aware(
+                datetime(2026, 10, 25, 19, 0),
+                timezone.get_current_timezone(),
+            ),
+            meal_category='dinner',
+            calories=Decimal('700'),
+        )
+
+        self.assertTrue(entry.is_quick_add)
+        self.assertIsNone(entry.food_item)
+        self.assertIsNone(entry.meal_prep_batch)
+        self.assertIsNone(entry.price_observation)
+        self.assertIsNone(entry.quantity)
+        self.assertEqual(entry.unit, '')
+        self.assertEqual(entry.calories, Decimal('700'))
+        self.assertEqual(entry.nutrition_source, 'manual estimate')
+        self.assertFalse(FoodPurchase.objects.exists())
+
+    def test_quick_add_update_changes_estimates_without_catalogue_recalculation(self):
+        entry = create_quick_add_entry(
+            source_name='Takeaway',
+            quantity=Decimal('350'),
+            unit=FoodItem.GRAMS,
+            calories=Decimal('600'),
+            estimated_cost=Decimal('8.00'),
+            currency='EUR',
+        )
+
+        entry = update_quick_add_entry(
+            entry,
+            source_name='Takeaway meal',
+            quantity=Decimal('400'),
+            unit=FoodItem.GRAMS,
+            calories=Decimal('750'),
+            protein=None,
+            carbohydrates=None,
+            fat=None,
+            estimated_cost=Decimal('9.00'),
+            currency='EUR',
+        )
+
+        self.assertEqual(entry.source_name, 'Takeaway meal')
+        self.assertEqual(entry.quantity, Decimal('400'))
+        self.assertEqual(entry.calories, Decimal('750'))
+        self.assertEqual(entry.estimated_cost, Decimal('9.00'))
+        self.assertTrue(entry.is_quick_add)
+
+    def test_quick_add_route_today_history_and_cost_history(self):
+        response = self.client.post(reverse('quick_add_consumption'), self._post_data(
+            source_name='Meal Prep Batch: one-off name',
+            estimated_cost='5.50',
+            currency='EUR',
+        ))
+
+        entry = ConsumptionEntry.objects.get()
+        self.assertRedirects(response, f'{reverse("food_today")}?date=2026-10-25')
+        self.assertTrue(entry.is_quick_add)
+        self.assertFalse(FoodPurchase.objects.exists())
+
+        today = self.client.get(reverse('food_today'), {'date': '2026-10-25'})
+        history = self.client.get(reverse('food_history'), {'date': '2026-10-25'})
+        costs = self.client.get(reverse('food_cost_history'), {'date': '2026-10-25'})
+        self.assertContains(today, 'Meal Prep Batch: one-off name')
+        self.assertContains(today, 'One meal')
+        self.assertContains(today, '5.50 EUR')
+        self.assertContains(history, 'Meal Prep Batch: one-off name')
+        self.assertContains(history, '5.50 EUR')
+        self.assertContains(costs, 'QUICK ADD')
+        self.assertContains(costs, 'Estimated consumed cost: 5.50 EUR')
+        self.assertNotContains(costs, 'PURCHASE')
+        self.assertContains(costs, 'Meal Prep Batch: one-off name')
+
+    def test_quick_add_edit_is_explicit_and_source_orphans_remain_metadata_only(self):
+        quick_add = create_quick_add_entry(
+            source_name='One-off snack',
+            calories=Decimal('200'),
+        )
+        quick_edit = self.client.get(reverse('consumption_edit', kwargs={'pk': quick_add.pk}))
+        self.assertContains(quick_edit, 'Quick-add estimates')
+        self.assertNotContains(quick_edit, 'Recalculate and save')
+        saved = self.client.post(reverse('consumption_edit', kwargs={'pk': quick_add.pk}), {
+            **self._post_data(
+                source_name='Corrected snack',
+                calories='250',
+            ),
+        })
+        self.assertEqual(saved.status_code, 302)
+        quick_add.refresh_from_db()
+        self.assertEqual(quick_add.source_name, 'Corrected snack')
+        self.assertEqual(quick_add.calories, Decimal('250'))
+
+        food_item = FoodItem.objects.create(
+            name='Deleted catalog item',
+            item_type=FoodItem.INGREDIENT,
+            nutrition_basis_unit=FoodItem.GRAMS,
+        )
+        orphan = create_consumption_entry(
+            food_item=food_item,
+            quantity=Decimal('100'),
+            unit=FoodItem.GRAMS,
+        )
+        food_item.delete()
+        orphan.refresh_from_db()
+        self.assertFalse(orphan.is_quick_add)
+        orphan_edit = self.client.get(reverse('consumption_edit', kwargs={'pk': orphan.pk}))
+        self.assertNotContains(orphan_edit, 'Quick-add estimates')
+        self.assertNotContains(orphan_edit, 'Recalculate and save')
+        self.assertNotContains(orphan_edit, 'name="calories"')
+
+    def test_quick_add_deletion_remains_post_only(self):
+        entry = create_quick_add_entry(source_name='Snack')
+        url = reverse('consumption_delete', kwargs={'pk': entry.pk})
+
+        self.assertEqual(self.client.get(url).status_code, 405)
+        self.assertEqual(self.client.post(url).status_code, 302)
+        self.assertFalse(ConsumptionEntry.objects.filter(pk=entry.pk).exists())
 
 
 class ConsumptionWorkflowTests(TestCase):
@@ -2885,7 +3072,7 @@ class BatchConsumptionWorkflowTests(TestCase):
 
 class ConsumptionBatchMigrationTests(TransactionTestCase):
     migrate_from = ('food', '0002_recipe_mealprepbatch_recipeingredient_and_more')
-    migrate_to = ('food', '0004_foodpurchase')
+    migrate_to = ('food', '0005_remove_consumptionentry_consumption_entry_quantity_positive_and_more')
 
     def tearDown(self):
         MigrationExecutor(connection).migrate([self.migrate_to])
@@ -2924,6 +3111,7 @@ class ConsumptionBatchMigrationTests(TransactionTestCase):
 
         self.assertEqual(migrated_entry.food_item_id, food_item.pk)
         self.assertIsNone(migrated_entry.meal_prep_batch_id)
+        self.assertFalse(migrated_entry.is_quick_add)
         self.assertEqual(migrated_entry.source_name, 'Migration oats')
         self.assertEqual(migrated_entry.quantity, Decimal('125.000'))
         self.assertEqual(migrated_entry.calories, Decimal('475.00'))

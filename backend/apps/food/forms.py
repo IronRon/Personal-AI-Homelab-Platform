@@ -417,6 +417,117 @@ class ConsumptionEntryForm(forms.ModelForm):
         return cleaned_data
 
 
+class QuickAddConsumptionForm(forms.Form):
+    source_name = forms.CharField(max_length=200, label='Meal or food name')
+    consumed_at = forms.DateTimeField(
+        input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M',
+            attrs={'type': 'datetime-local'},
+        ),
+        label='Consumed date and time',
+    )
+    meal_category = forms.ChoiceField(
+        choices=(('', 'No category'),) + ConsumptionEntry.MEAL_CATEGORIES,
+        required=False,
+        label='Meal category',
+    )
+    quantity = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=3,
+        min_value=Decimal('0.001'),
+        label='Amount (optional)',
+        widget=forms.NumberInput(attrs={'step': '0.001', 'min': '0.001'}),
+    )
+    unit = forms.ChoiceField(
+        choices=(('', 'No measured amount'),) + FoodItem.BASIS_UNITS,
+        required=False,
+        label='Unit (optional)',
+    )
+    calories = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=2,
+        min_value=0,
+        label='Calories (optional)',
+        widget=forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+    )
+    protein = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=2,
+        min_value=0,
+        label='Protein in g (optional)',
+        widget=forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+    )
+    carbohydrates = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=2,
+        min_value=0,
+        label='Carbohydrates in g (optional)',
+        widget=forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+    )
+    fat = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=2,
+        min_value=0,
+        label='Fat in g (optional)',
+        widget=forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+    )
+    estimated_cost = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=2,
+        min_value=0,
+        label='Estimated consumed cost (optional)',
+        widget=forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+    )
+    currency = forms.CharField(required=False, max_length=3, label='Cost currency')
+
+    def __init__(self, *args, instance=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.instance = instance
+        if instance is not None and not self.is_bound:
+            self.initial.update({
+                'source_name': instance.source_name,
+                'consumed_at': timezone.localtime(instance.consumed_at).strftime('%Y-%m-%dT%H:%M'),
+                'meal_category': instance.meal_category,
+                'quantity': instance.quantity,
+                'unit': instance.unit,
+                'calories': instance.calories,
+                'protein': instance.protein,
+                'carbohydrates': instance.carbohydrates,
+                'fat': instance.fat,
+                'estimated_cost': instance.estimated_cost,
+                'currency': instance.currency if instance.estimated_cost is not None else '',
+            })
+        if not self.is_bound and not self.initial.get('consumed_at'):
+            self.initial['consumed_at'] = timezone.localtime(
+                timezone.now(),
+            ).strftime('%Y-%m-%dT%H:%M')
+
+    def clean(self):
+        cleaned_data = super().clean()
+        quantity = cleaned_data.get('quantity')
+        unit = cleaned_data.get('unit')
+        estimated_cost = cleaned_data.get('estimated_cost')
+        currency = (cleaned_data.get('currency') or '').strip().upper()
+
+        if (quantity is None) != (not unit):
+            self.add_error('quantity', 'Enter both an amount and its unit, or leave both blank.')
+            self.add_error('unit', 'Enter both an amount and its unit, or leave both blank.')
+        if estimated_cost is not None and len(currency) != 3:
+            self.add_error('currency', 'Enter a three-letter currency when entering an estimated cost.')
+        if estimated_cost is None:
+            cleaned_data['currency'] = ''
+        elif currency:
+            cleaned_data['currency'] = currency
+        return cleaned_data
+
+
 class ConsumptionMetadataForm(forms.ModelForm):
     consumed_at = forms.DateTimeField(
         input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],

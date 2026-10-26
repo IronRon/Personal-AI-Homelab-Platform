@@ -34,6 +34,7 @@
                   {% if event.event_type == 'PURCHASE' %}<span class="pill">PURCHASE</span>
                   {% elif event.event_type == 'MEAL PREP' %}<span class="pill ghost">MEAL PREP</span>
                   {% elif event.event_type == 'ATE FROM BATCH' %}<span class="pill ghost">ATE FROM BATCH</span>
+                  {% elif event.event_type == 'QUICK ADD' %}<span class="pill ghost">QUICK ADD</span>
                   {% else %}<span class="pill ghost">CONSUMPTION</span>{% endif %}
                 </td>
                 <td>{{ event.description }}</td>

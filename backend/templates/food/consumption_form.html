@@ -45,6 +45,7 @@
           <a href="{% url 'food_history' %}" class="button secondary">Cancel</a>
         {% else %}
           <button type="submit" class="button">Save consumption</button>
+          <a href="{% url 'quick_add_consumption' %}" class="button secondary">Quick add meal</a>
           <a href="{% url 'food_today' %}" class="button secondary">Cancel</a>
         {% endif %}
       </div>

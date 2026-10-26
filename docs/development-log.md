@@ -2,6 +2,49 @@
 
 This is the chronological record of meaningful development work on the Personal AI Homelab Platform. Entries are newest first. Design documents describe intended requirements and rationale; this log records work actually performed and verification evidence.
 
+## 2026-10-26 — Quick Add Meals
+
+**Area:** Food / Consumption
+
+**Summary:**
+Added a one-off Quick Add path for logging food without first creating a reusable FoodItem.
+
+**Completed:**
+
+- Added the explicit `ConsumptionEntry.is_quick_add` marker and migration 0005. Quick Add entries may omit quantity/unit or provide a positive paired `g`/`ml` amount.
+- Added Quick Add creation and direct estimate editing with nullable nutrition/cost snapshots and manual-estimate provenance.
+- Added Today and existing Log Food entry points. Quick Add entries appear in Today/History and as `QUICK ADD` consumption events in Cost History; they never create FoodPurchase rows.
+- Kept unmarked source-orphaned FoodItem/Batch records on the existing metadata-only edit path; catalogue recalculation remains unavailable for Quick Add.
+- Removed the duplicate FoodPurchase test import discovered while adding focused Quick Add tests.
+
+**Technical decisions:**
+
+- `is_quick_add` distinguishes Quick Add from historical entries whose `SET_NULL` source FK was deleted. The marker defaults false for existing rows.
+- An optional measured amount is limited to a paired positive quantity and `g`/`ml` unit. One-off meals may omit both.
+- Estimate corrections directly replace user-entered snapshots; no catalogue lookup, automatic purchase, AI estimate, or FoodItem creation occurs.
+
+**Testing and verification:**
+
+- `python manage.py test apps.food.tests.QuickAddConsumptionWorkflowTests` passed: 9 tests.
+- `python manage.py test apps.food.tests.ConsumptionBatchMigrationTests` passed: 1 migration-compatibility test.
+- `python manage.py test apps.food.tests.QuickAddConsumptionWorkflowTests apps.food.tests.ConsumptionBatchMigrationTests apps.food.tests.ConsumptionWorkflowTests apps.food.tests.BatchConsumptionWorkflowTests apps.food.tests.FoodCostHistoryWorkflowTests` passed: 34 tests.
+- `python manage.py check` passed; `python manage.py makemigrations --check --dry-run` reported no changes.
+- `python manage.py test apps.food` passed: 125 tests; `python manage.py test apps.core apps.food` passed: 127 tests.
+- `git diff --check` passed. No browser or desktop/mobile review was performed.
+- `showmigrations food` reports 0001-0004 applied and 0005 unapplied; no migration was applied during this slice.
+
+**Known issues / deferred work:**
+
+- Quick Add to reusable FoodItem promotion, automatic nutrition lookup, barcode/OCR/AI estimation, restaurant integrations, automatic purchase creation, receipt processing, inventory, portions/conversions, and complete desktop/mobile review remain deferred.
+
+**Next steps:**
+
+- Run the complete Food/Core suites and Django/migration/diff checks after final changes; review Quick Add on desktop and narrow/mobile layouts.
+
+**Git status:**
+
+- Implementation and documentation edits are uncommitted; no staging, commit, or push was performed.
+
 ## 2026-10-25 — Food Purchase and Cost History
 
 **Area:** Food / Purchase and Cost History

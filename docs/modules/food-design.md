@@ -1,10 +1,10 @@
 # Food Module Design
 
 > **Document status:** Living module specification
-> **Version:** 1.0.0
-> **Date:** 2026-10-25
+> **Version:** 1.1.0
+> **Date:** 2026-10-26
 > **Design status:** Approved starting point with accepted recipe/batch data-foundation decisions
-> **Implementation status:** Food tracking phases 1-4, recipe/batch data foundation and UI, batch-backed consumption, and simple Food Purchase/Cost History implemented; accounting, inventory, quick-add, targets, and AI remain deferred
+> **Implementation status:** Food tracking phases 1-4, recipe/batch data foundation and UI, batch-backed consumption, Food Purchase/Cost History, and one-off Quick Add consumption implemented; accounting, inventory, targets, and AI remain deferred
 >
 > This document records the agreed starting design from the Food module discovery interview. It should be updated as implementation and real-world use expose better decisions. It does not override the wider guidance in [docs/project-design.md](../project-design.md).
 
@@ -62,12 +62,14 @@ The design was approved as a starting point, not as an irreversible schema or pr
 - An ingredient represents a reusable food type such as rice or chicken.
 - A product represents a specific brand/package with label nutrition and purchase details.
 - Allow a quick-add food or drink that can optionally be saved as a reusable record.
+- Quick Add records one-off eaten food directly in the unified consumption log without requiring a FoodItem.
 - Retain nutrition and price provenance, including manual entry, label, estimate, dataset, or later import sources.
 
 ### 3.4 Costs and prices
 
 - `PriceObservation` is catalogue price data for estimating allocated consumption cost; it does not prove that a purchase occurred.
 - `FoodPurchase` records actual money spent with a description, timestamp, amount, currency, and optional FoodItem, quantity/unit, and shop/source.
+- Quick Add records manually entered or estimated consumption values with an explicit `is_quick_add` marker; it may omit quantity/unit and never creates a purchase.
 - Purchase spending is separate from estimated consumption cost. Recording a purchase does not create a `ConsumptionEntry`, and consumption does not create a purchase.
 - A MealPrepBatch shows an estimated cost from stored ingredient snapshots; creating or consuming a batch does not add a FoodPurchase.
 - Derive consumption cost from product or ingredient prices and consumed quantity when possible.
@@ -90,11 +92,13 @@ The design was approved as a starting point, not as an irreversible schema or pr
 - Missing nutrient and cost values remain unknown and make the corresponding total incomplete rather than being treated as known zero.
 - Recipe or batch corrections to nutrition/cost are not arbitrary overrides in the first implementation; correct actual ingredient quantities or selected prices instead.
 - `ConsumptionEntry` is the unified log for FoodItem and MealPrepBatch sources. New entries require exactly one source through model/service validation; database constraints reject both sources being set but do not independently reject neither source. A batch-backed entry cannot reference a PriceObservation.
+- Quick Add entries are explicitly marked, have no FoodItem, Batch, or PriceObservation reference, and may omit both quantity and unit. Supplied quantity/unit must be a positive `g`/`ml` pair. Unmarked entries with null source FKs remain historical orphans and are not treated as Quick Add.
+- Quick Add nutrition/cost values are user-entered snapshots with manual-estimate provenance. Unknown values remain null. Editing directly replaces those estimates; catalogue recalculation is not offered.
 - Batch consumption records an amount no greater than the batch yield and scales saved batch ingredient snapshots by amount/yield. Missing nutrient and cost snapshots remain unknown; a known cost retains its currency, and unlike currencies are never combined.
 - The nullable batch foreign key uses `SET_NULL`. Deleting a batch preserves the entry's source name and nutrition/cost snapshots. Such entries remain recognized as batch-backed and cannot be recalculated from catalogue values.
 - Count-based portions and servings, unit conversion, inventory, and purchase accounting are deferred.
 
-The Meal Prep Batch UI is implemented: users can start from Recipe detail or create directly, select a Recipe, explicitly load its planned ingredients, and edit actual ingredient rows before saving. Loading, adding, and removing rows are server-rendered POST round-trips and do not persist a batch. Existing PriceObservation selection rules apply. Final creation delegates snapshot creation to the transactional `create_meal_prep_batch()` service; read-only detail calculates totals from stored snapshots. Batch detail also links to a consumption form; successful creation redirects to the local-date Food Today view. Each logged amount is checked against the full yield, but cumulative consumption is not capped and remaining availability is not tracked. Batch editing/recalculation, receipt grouping/imports, accounting/budgets, quick-add meals, inventory/availability, portions/conversions, AI/API integration, and final MVP polish remain deferred.
+The Meal Prep Batch UI is implemented: users can start from Recipe detail or create directly, select a Recipe, explicitly load its planned ingredients, and edit actual ingredient rows before saving. Loading, adding, and removing rows are server-rendered POST round-trips and do not persist a batch. Existing PriceObservation selection rules apply. Final creation delegates snapshot creation to the transactional `create_meal_prep_batch()` service; read-only detail calculates totals from stored snapshots. Batch detail also links to a consumption form; successful creation redirects to the local-date Food Today view. Each logged amount is checked against the full yield, but cumulative consumption is not capped and remaining availability is not tracked. Quick Add is available for one-off meals without catalog data. Batch editing/recalculation, receipt grouping/imports, accounting/budgets, inventory/availability, portions/conversions, AI/API integration, and final MVP polish remain deferred.
 
 ### 3.6 Data entry and scope
 
@@ -117,10 +121,9 @@ The Meal Prep Batch UI is implemented: users can start from Recipe detail or cre
 
 ### 4.2 Quick-add consumption
 
-1. Start a consumption entry when the item is not in the catalog.
-2. Enter the available name, quantity, nutrition values, and cost if known.
-3. Save the entry with explicit provenance and unknown fields where necessary.
-4. Optionally promote the item into a reusable ingredient or product.
+**Implemented:** Start Quick Add from Today or the catalogue consumption form. Enter a one-off meal name, local date/time, optional meal category, optional positive `g`/`ml` quantity/unit pair, optional nutrition estimates, and optional estimated cost with currency. Leave unknown values blank. The flow creates a marked `ConsumptionEntry`, not a FoodItem or FoodPurchase; entered estimates can be corrected directly without catalogue recalculation. Reusable foods should normally be added to the catalogue.
+
+Promotion of a Quick Add entry into a reusable catalogue item remains future work.
 
 ### 4.3 Catalog management
 
@@ -143,7 +146,7 @@ The Meal Prep workflow is available:
 3. Add/remove rows through server-rendered POST actions, select existing PriceObservations, and record cooked date/time and final yield.
 4. Create the batch through `create_meal_prep_batch()`, then review stored ingredient snapshots and totals calculated from those snapshots on read-only detail.
 
-Batch editing/deletion/recalculation, basic purchase history, quick-add meals/foods, cumulative batch availability/inventory, portions/count units/conversions, and AI/API integration remain deferred. Full MVP polish and desktop/mobile review are still outstanding.
+Batch editing/deletion/recalculation, receipt grouping/imports, accounting/budgets, reusable quick-add FoodItems, cumulative batch availability/inventory, portions/count units/conversions, and AI/API integration remain deferred. Full MVP polish and desktop/mobile review are still outstanding.
 
 ### 4.5 Analysis
 
@@ -287,7 +290,7 @@ The MVP does not include live AI integration, OCR, external nutrition APIs, CSV 
 ## 10. Future backlog
 
 - Receipt grouping/imports, accounting/budgets, and purchase-to-inventory tracking.
-- Quick-add meals/foods and portions/count-unit conversions.
+- Promoting Quick Add entries into reusable FoodItems and portions/count-unit conversions.
 - Count-based portions, servings, and unit conversions.
 - Shopping lists.
 - CSV imports.
@@ -344,12 +347,12 @@ Resolved: actual FoodPurchase spending is separate from PriceObservation catalog
 - [ ] Expose validated domain services for future AI tools.
 - [ ] Add AI tools only after deterministic workflows are reliable.
 
-The next Food work is MVP polish and prioritized follow-ons such as quick-add meals, cumulative batch availability, and full desktop/mobile review. Batch editing, deletion, and recalculation remain out of scope.
+The next Food work is MVP polish and prioritized follow-ons such as cumulative batch availability and full desktop/mobile review. Batch editing, deletion, and recalculation remain out of scope.
 
 ## 14. Acceptance criteria
 
 - [x] A user can create or edit a reusable FoodItem catalogue record.
-- [ ] A user can quick-add an uncatalogued food directly while logging consumption.
+- [x] A user can quick-add a one-off uncatalogued meal directly into consumption history.
 - [x] A user can log a measured catalogue consumption and view daily nutrition/cost summaries.
 - [x] Unknown consumption and estimate values are preserved and represented by completeness state.
 - [x] Existing ConsumptionEntry snapshots remain stable after catalogue edits.
@@ -363,14 +366,15 @@ The next Food work is MVP polish and prioritized follow-ons such as quick-add me
 - [x] Meal Prep Batch list, direct/Recipe-prefilled creation, actual ingredient editing, and read-only historical detail are available through the UI.
 - [x] ConsumptionEntry can log an amount from a MealPrepBatch and preserve scaled historical snapshots.
 - [x] A user can record actual Food purchases and review them separately from estimated Meal Prep and consumption costs.
+- [x] A user can log a one-off Quick Add meal without first creating a FoodItem, preserving optional estimated nutrition and cost.
 - [x] Domain calculations are tested independently of AI.
 - [ ] Future AI tools can call shared services without direct database access.
 
 ## 15. Current implementation status
 
-**Implemented:** Phases 1-4 provide `FoodItem`, `PriceObservation`, and `ConsumptionEntry`, catalogue management, consumption logging, historical snapshots, Today/History, navigation, and focused automated tests. The recipe/batch data foundation adds `Recipe`, `RecipeIngredient`, `MealPrepBatch`, and `BatchIngredient`, dynamic recipe estimates, snapshot-based batch totals, and transactional batch creation. The Recipe UI supports list, metadata create/edit, detail, planned ingredient create/edit/POST-only delete, and completeness-aware estimates. Meal Prep supports list, direct or Recipe-prefilled batch creation with editable actual rows and POST-based add/remove controls, plus read-only detail from historical snapshots. Batch detail can log an amount as eaten; the unified entry stores nutrition/cost snapshots scaled from batch snapshots and appears in Food Today by local reporting date. `FoodPurchase` records actual spend separately from these estimates; Cost History labels purchase, Meal Prep, and consumption events distinctly, and Today displays purchase totals separately by currency. Migration 0003 adds batch consumption and 0004 adds FoodPurchase. The configured reporting timezone is `Europe/Dublin`.
+**Implemented:** Phases 1-4 provide `FoodItem`, `PriceObservation`, and `ConsumptionEntry`, catalogue management, consumption logging, historical snapshots, Today/History, navigation, and focused automated tests. The recipe/batch data foundation adds `Recipe`, `RecipeIngredient`, `MealPrepBatch`, and `BatchIngredient`, dynamic recipe estimates, snapshot-based batch totals, and transactional batch creation. The Recipe UI supports list, metadata create/edit, detail, planned ingredient create/edit/POST-only delete, and completeness-aware estimates. Meal Prep supports list, direct or Recipe-prefilled batch creation with editable actual rows and POST-based add/remove controls, plus read-only detail from historical snapshots. Batch detail can log an amount as eaten; the unified entry stores nutrition/cost snapshots scaled from batch snapshots and appears in Food Today by local reporting date. `FoodPurchase` records actual spend separately from these estimates; Cost History labels purchase, Meal Prep, consumption, and Quick Add events distinctly, and Today displays purchase totals separately by currency. Quick Add entries use an explicit source marker, support optional measured amounts and nullable manually entered estimates, and can be corrected without catalogue recalculation. Migrations 0003-0005 add batch consumption, FoodPurchase, and Quick Add support. The configured reporting timezone is `Europe/Dublin`.
 
-**Planned or deferred:** Receipt grouping/imports, accounting/budgets, purchase-to-inventory tracking, quick-add meals/foods, cumulative batch availability/inventory, batch editing/recalculation, daily targets, advanced cost analysis, and AI/API integrations are not implemented. Arbitrary manual nutrition/cost overrides, count-based portions and servings, conversions, and external data sources remain deferred. Final MVP polish and full desktop/mobile review are outstanding.
+**Planned or deferred:** Receipt grouping/imports, accounting/budgets, purchase-to-inventory tracking, promoting Quick Add entries into reusable FoodItems, cumulative batch availability/inventory, batch editing/recalculation, daily targets, advanced cost analysis, and AI/API integrations are not implemented. Arbitrary manual nutrition/cost overrides outside Quick Add, count-based portions and servings, conversions, and external data sources remain deferred. Final MVP polish and full desktop/mobile review are outstanding.
 
 This status should be updated as milestones are completed. Planned requirements must not be described as implemented until they exist in working code and have been tested.
 
@@ -388,3 +392,4 @@ This status should be updated as milestones are completed. Planned requirements 
 | 0.8.0 | 2026-10-25 | Recorded Meal Prep Batch list, direct and Recipe-prefilled creation, and snapshot-based read-only detail; batch-backed consumption remains deferred. |
 | 0.9.0 | 2026-10-25 | Recorded batch-backed consumption with yield-scaled historical snapshots, migration 0003, source/deletion semantics, verification evidence, and remaining follow-on scope. |
 | 1.0.0 | 2026-10-25 | Recorded simple FoodPurchase events, Cost History, and separate actual-purchase versus estimated-consumption totals. |
+| 1.1.0 | 2026-10-26 | Recorded marked Quick Add consumption with optional measured amounts, direct estimate edits, and no automatic purchase creation. |

@@ -412,13 +412,16 @@ class ConsumptionEntry(models.Model):
 		blank=True,
 		related_name='consumption_entries',
 	)
+	is_quick_add = models.BooleanField(default=False)
 	source_name = models.CharField(max_length=200)
 	quantity = models.DecimalField(
 		max_digits=10,
 		decimal_places=3,
+		null=True,
+		blank=True,
 		validators=[MinValueValidator(Decimal('0.001'))],
 	)
-	unit = models.CharField(max_length=2, choices=FoodItem.BASIS_UNITS)
+	unit = models.CharField(max_length=2, choices=FoodItem.BASIS_UNITS, blank=True)
 	consumed_at = models.DateTimeField(default=timezone.now)
 	meal_category = models.CharField(max_length=20, choices=MEAL_CATEGORIES, blank=True)
 	calories = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
@@ -436,8 +439,11 @@ class ConsumptionEntry(models.Model):
 		ordering = ('-consumed_at', '-id')
 		constraints = [
 			models.CheckConstraint(
-				condition=Q(quantity__gt=0),
-				name='consumption_entry_quantity_positive',
+				condition=(
+					Q(is_quick_add=True, quantity__isnull=True, unit='')
+					| Q(quantity__gt=0, unit__in=[FoodItem.GRAMS, FoodItem.MILLILITRES])
+				),
+				name='consumption_entry_quantity_unit_valid',
 			),
 			models.CheckConstraint(
 				condition=Q(calories__gte=0) | Q(calories__isnull=True),
@@ -468,13 +474,31 @@ class ConsumptionEntry(models.Model):
 				condition=Q(meal_prep_batch__isnull=True) | Q(price_observation__isnull=True),
 				name='consumption_entry_batch_no_price_observation',
 			),
+			models.CheckConstraint(
+				condition=(
+					Q(is_quick_add=False)
+					| Q(food_item__isnull=True, meal_prep_batch__isnull=True, price_observation__isnull=True)
+				),
+				name='consumption_entry_quick_add_no_catalogue_source',
+			),
 		]
 
 	def clean(self):
 		# Require a source only for new rows so SET_NULL can preserve historical entries.
-		if self._state.adding and not self.food_item_id and not self.meal_prep_batch_id:
+		if (
+			self._state.adding
+			and not self.is_quick_add
+			and not self.food_item_id
+			and not self.meal_prep_batch_id
+		):
 			raise ValidationError({
 				'food_item': 'Select a food item or a meal-prep batch for a new entry.',
+			})
+		if self.is_quick_add and (
+			self.food_item_id or self.meal_prep_batch_id or self.price_observation_id
+		):
+			raise ValidationError({
+				'is_quick_add': 'Quick Add entries cannot reference catalogue items, batches, or prices.',
 			})
 		if self.food_item_id and self.meal_prep_batch_id:
 			raise ValidationError({
@@ -500,6 +524,12 @@ class ConsumptionEntry(models.Model):
 			raise ValidationError({
 				'price_observation': 'Price observation must belong to the selected food item.',
 			})
+		if not self.is_quick_add and self._state.adding and self.quantity is None:
+			raise ValidationError({'quantity': 'A measured quantity is required for catalogue or batch entries.'})
+		if self.is_quick_add and self.estimated_cost is None and self.currency:
+			raise ValidationError({'currency': 'Currency is only stored when a Quick Add cost is known.'})
+		if self.is_quick_add and self.estimated_cost is not None and not self.currency:
+			raise ValidationError({'currency': 'Choose a currency when entering a Quick Add cost.'})
 
 	def __str__(self):
 		return f'{self.source_name} - {self.quantity}{self.unit}'

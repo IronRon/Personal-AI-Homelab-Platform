@@ -92,6 +92,90 @@ def create_consumption_entry(
     return entry
 
 
+@transaction.atomic
+def create_quick_add_entry(
+    *,
+    source_name: str,
+    consumed_at=None,
+    meal_category: str = '',
+    quantity: Optional[Decimal] = None,
+    unit: str = '',
+    calories: Optional[Decimal] = None,
+    protein: Optional[Decimal] = None,
+    carbohydrates: Optional[Decimal] = None,
+    fat: Optional[Decimal] = None,
+    estimated_cost: Optional[Decimal] = None,
+    currency: str = '',
+) -> ConsumptionEntry:
+    """Create a one-off consumption entry from user-entered estimates."""
+    entry = ConsumptionEntry(
+        is_quick_add=True,
+        source_name=source_name,
+        quantity=quantity,
+        unit=unit,
+        consumed_at=_as_aware(consumed_at),
+        meal_category=meal_category,
+        calories=calories,
+        protein=protein,
+        carbohydrates=carbohydrates,
+        fat=fat,
+        estimated_cost=estimated_cost,
+        currency=currency if estimated_cost is not None else '',
+        nutrition_source=(
+            'manual estimate'
+            if any(value is not None for value in (calories, protein, carbohydrates, fat))
+            else ''
+        ),
+        cost_source='manual estimate' if estimated_cost is not None else '',
+    )
+    entry.full_clean()
+    entry.save()
+    return entry
+
+
+@transaction.atomic
+def update_quick_add_entry(
+    entry: ConsumptionEntry,
+    *,
+    source_name: str,
+    consumed_at=None,
+    meal_category=None,
+    quantity: Optional[Decimal],
+    unit: str,
+    calories: Optional[Decimal],
+    protein: Optional[Decimal],
+    carbohydrates: Optional[Decimal],
+    fat: Optional[Decimal],
+    estimated_cost: Optional[Decimal],
+    currency: str,
+) -> ConsumptionEntry:
+    """Replace user-entered Quick Add values without catalogue recalculation."""
+    if not entry.is_quick_add:
+        raise ValueError('Only Quick Add entries can be edited as user-entered estimates.')
+    entry.source_name = source_name
+    entry.quantity = quantity
+    entry.unit = unit
+    if consumed_at is not None:
+        entry.consumed_at = _as_aware(consumed_at)
+    if meal_category is not None:
+        entry.meal_category = meal_category
+    entry.calories = calories
+    entry.protein = protein
+    entry.carbohydrates = carbohydrates
+    entry.fat = fat
+    entry.estimated_cost = estimated_cost
+    entry.currency = currency if estimated_cost is not None else ''
+    entry.nutrition_source = (
+        'manual estimate'
+        if any(value is not None for value in (calories, protein, carbohydrates, fat))
+        else ''
+    )
+    entry.cost_source = 'manual estimate' if estimated_cost is not None else ''
+    entry.full_clean()
+    entry.save()
+    return entry
+
+
 def _snapshot_sources(batch: MealPrepBatch, field: str, *, known_costs_only: bool = False) -> str:
     ingredients = batch.ingredients.all()
     if known_costs_only:
@@ -182,6 +266,8 @@ def recalculate_consumption_entry(
     if _is_batch_consumption_entry(entry):
         # The original values came from batch snapshots, not catalogue inputs.
         raise ValueError('Batch-backed entries cannot be recalculated from catalogue values.')
+    if entry.is_quick_add:
+        raise ValueError('Quick Add estimates cannot be recalculated from catalogue values.')
     if not confirmed:
         raise ValueError('Explicit confirmation is required before recalculation.')
 

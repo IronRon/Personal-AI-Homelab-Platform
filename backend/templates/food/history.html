@@ -32,7 +32,7 @@
               <tr>
                 <td>{{ entry.consumed_at|date:'H:i' }}</td>
                 <td>{{ entry.source_name }}{% if entry.meal_category %}<br /><span class="muted">{{ entry.get_meal_category_display }}</span>{% endif %}</td>
-                <td>{{ entry.quantity }} {{ entry.unit }}</td>
+                <td>{% if entry.quantity is not None %}{{ entry.quantity }} {{ entry.unit }}{% else %}One meal{% endif %}</td>
                 <td>{{ entry.calories|default_if_none:'—' }}</td>
                 <td>{{ entry.protein|default_if_none:'—' }} g</td>
                 <td>{% if entry.estimated_cost is not None %}{{ entry.estimated_cost }} {{ entry.currency }}{% else %}—{% endif %}</td>

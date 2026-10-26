@@ -8,6 +8,7 @@ urlpatterns = [
     path('new/', views.food_item_create, name='food_item_create'),
     path('today/', views.food_today, name='food_today'),
     path('log/', views.consumption_create, name='consumption_create'),
+    path('quick-add/', views.quick_add_consumption, name='quick_add_consumption'),
     path('history/', views.food_history, name='food_history'),
     path('cost-history/', views.food_cost_history, name='food_cost_history'),
     path('purchases/new/', views.food_purchase_create, name='food_purchase_create'),

@@ -18,6 +18,7 @@ from .forms import (
     FoodPurchaseForm,
     MealPrepBatchForm,
     PriceObservationForm,
+    QuickAddConsumptionForm,
     RecipeForm,
     RecipeIngredientForm,
 )
@@ -38,10 +39,12 @@ from .services.cost_history import get_food_cost_events_for_date
 from .services.consumption import (
     create_batch_consumption_entry,
     create_consumption_entry,
+    create_quick_add_entry,
     get_consumption_entries_for_date,
     get_daily_summary,
     recalculate_consumption_entry,
     update_consumption_entry,
+    update_quick_add_entry,
 )
 from .services.meal_prep import BatchIngredientInput, create_meal_prep_batch
 from .services.purchases import (
@@ -544,8 +547,44 @@ def consumption_create(request):
     return render(request, 'food/consumption_form.html', {'form': form, 'is_edit': False})
 
 
+def quick_add_consumption(request):
+    form = QuickAddConsumptionForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            entry = create_quick_add_entry(**form.cleaned_data)
+        except (ValidationError, ValueError):
+            form.add_error(None, 'Quick Add could not be saved. Check the entered values and try again.')
+        else:
+            messages.success(request, f'{entry.source_name} was added to your food log.')
+            reporting_date = timezone.localtime(entry.consumed_at).date().isoformat()
+            return redirect(f'{reverse("food_today")}?date={reporting_date}')
+    return render(
+        request,
+        'food/quick_add_consumption_form.html',
+        {'form': form, 'is_edit': False},
+    )
+
+
 def consumption_edit(request, pk):
     entry = get_object_or_404(ConsumptionEntry, pk=pk)
+    if entry.is_quick_add:
+        form = QuickAddConsumptionForm(request.POST or None, instance=entry)
+        if request.method == 'POST' and form.is_valid():
+            try:
+                entry = update_quick_add_entry(entry, **form.cleaned_data)
+            except (ValidationError, ValueError):
+                form.add_error(None, 'Quick Add could not be updated. Check the entered values and try again.')
+            else:
+                messages.success(request, 'Quick Add food log entry updated.')
+                return redirect(
+                    f'{reverse("food_history")}?date={timezone.localtime(entry.consumed_at).date().isoformat()}'
+                )
+        return render(
+            request,
+            'food/quick_add_consumption_form.html',
+            {'form': form, 'is_edit': True, 'entry': entry},
+        )
+
     metadata_only = entry.meal_prep_batch_id is not None or entry.food_item_id is None
     if metadata_only:
         form = ConsumptionMetadataForm(request.POST or None, instance=entry)

@@ -89,13 +89,18 @@ def get_food_cost_events_for_date(reporting_date: date, tz=None) -> list[FoodCos
         ))
 
     for entry in get_consumption_entries_for_date(reporting_date, tz=tz):
-        from_batch = _is_batch_consumption(entry)
+        from_batch = not entry.is_quick_add and _is_batch_consumption(entry)
         description = entry.source_name
         if from_batch and description.startswith('Meal Prep Batch: '):
             description = description.removeprefix('Meal Prep Batch: ')
+        event_type = (
+            'QUICK ADD' if entry.is_quick_add
+            else 'ATE FROM BATCH' if from_batch
+            else 'CONSUMPTION'
+        )
         events.append(FoodCostEvent(
             occurred_at=entry.consumed_at,
-            event_type='ATE FROM BATCH' if from_batch else 'CONSUMPTION',
+            event_type=event_type,
             description=description,
             amount=entry.estimated_cost,
             currency=entry.currency if entry.estimated_cost is not None else '',
