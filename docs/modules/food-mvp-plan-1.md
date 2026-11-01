@@ -48,12 +48,66 @@ Create the smallest useful end-to-end Food feature on the existing Django/SQLite
 18. Update `docs/modules/food-design.md` implementation status, milestone checklist, acceptance checklist, and revision history only for behavior actually implemented. Do not mark recipes, meal prep, AI, or deferred features implemented.
 19. Report changed files, migration status, exact verification commands/results, limitations, unresolved questions, and one suggested next milestone. Do not begin the next milestone.
 
-**Phase 4 status: Implemented.** Verification, Food landing-page navigation, shared Food navigation, contextual help, empty states, outside-meal guidance, responsive styling improvements, route regressions, and documentation updates are complete. No recipes, meal preparation, serving conversions, AI, or new infrastructure were added. Rendered visual inspection was not automated in this environment; manual desktop/mobile browser review remains part of the checklist below.
+**Phase 4 implementation: Complete; manual visual review remains outstanding.** Verification, Food landing-page navigation, shared Food navigation, contextual help, empty states, outside-meal guidance, responsive styling improvements, route regressions, and documentation updates are complete. No recipes, meal preparation, serving conversions, AI, or new infrastructure were added. Rendered visual inspection was not automated in this environment; manual desktop/mobile browser review remains part of the checklist below.
 
-**Relevant files**
-- `docs/modules/food-design.md` — primary requirements, open questions, milestone checklist, and implementation status.
-- `docs/project-design.md` — wider modular-monolith, service-layer, local-first, SQLite, and AI-tool boundaries.
-- `.github/copilot-instructions.md` — keep the implementation simple, modular, tested, documented, and free of silent infrastructure additions.
+### Follow-on: Recipe and meal-prep data foundation
+
+**Status: Data foundation, Recipe UI, and Meal Prep Batch list/create/read-only detail implemented.** This is follow-on work beyond the original basic tracking milestone above.
+
+- Added `Recipe` and `RecipeIngredient` for reusable plans using existing `FoodItem` records. Recipe estimates use current nutrition and price data and follow the existing zero/one/multiple price-selection policy.
+- Added `MealPrepBatch` and `BatchIngredient` for actual cooking events and actual ingredient inputs. Ingredient names, nutrient contributions, allocated costs, currency, and provenance are snapshotted when the batch is created; batch totals read snapshots only.
+- Added positive quantity/yield and unit/price ownership validation, single-currency validation for known batch costs, and transactional batch creation. Missing nutrient or cost values remain incomplete.
+- Added one additive migration and focused model, calculation, snapshot-stability, currency, and service tests. The migration was not applied to the development database.
+
+### Follow-on: Recipe UI
+
+**Status: Implemented on 2026-10-25.** This UI work follows the data foundation and does not change the original basic tracking milestone above.
+
+- Added Recipe list, metadata create/edit, detail, planned ingredient create/edit/POST-only delete, and a Recipes link in Food navigation.
+- Recipe detail calls the existing estimate service and presents nutrition/cost completeness independently. Estimates update from current FoodItem and PriceObservation values.
+- Added focused tests for list/detail, create/edit, ingredient management and validation, parent scoping, price selection, completeness, mixed currencies, live catalogue refresh, and stale data handling.
+- Reported verification: `python manage.py check` passed; `python manage.py makemigrations --check --dry-run` reported no changes; `python manage.py test apps.food` passed with 72 tests; the full suite passed with 74 tests; `git diff --check` passed.
+- No Meal Prep Batch forms/views/templates, batch creation through the browser, batch-backed consumption, AI, APIs, or new infrastructure were added. No model or migration changes were needed for the Recipe UI.
+
+### Follow-on: Meal Prep Batch UI and consumption
+
+**Status: Implemented on 2026-10-25.** The batch UI added no schema changes to the Recipe/batch data foundation. Batch-backed consumption is a separate follow-on slice that adds migration 0003.
+
+- Added the batch list, direct creation, Recipe-detail “Create batch” entry point, Recipe selection, and explicit loading of planned Recipe ingredients into editable actual rows.
+- Ingredient add/remove and Recipe-load actions are server-rendered POST round-trips without JavaScript; these interim submissions do not persist a batch. Existing PriceObservation selection rules apply.
+- Final creation delegates validation and snapshot creation to transactional `create_meal_prep_batch()`. Read-only detail totals come from stored snapshots through `calculate_batch_totals()`.
+- Batch detail provides “Log as eaten”. The service validates a positive amount no greater than batch yield and matching yield unit, then scales stored batch snapshots into `ConsumptionEntry`; it does not recalculate from current catalogue values.
+- Migration 0003 adds a nullable `SET_NULL` batch relation and constraints against dual sources or a batch price observation. Deleting a batch preserves the entry's source name and nutrition/cost snapshots. Database constraints prevent both source FKs being set but do not independently require one; creation validation requires exactly one.
+- Each consumption row may be no greater than the yield, but cumulative consumption is not limited and remaining availability is not tracked.
+- User-reported implementation-run verification: `python manage.py check` passed; `python manage.py makemigrations --check --dry-run` reported no changes; Food tests passed (105); Core + Food tests passed (107); `git diff --check` passed; the migration compatibility test passed; and 300 g from a 1,200 g / 2,400 kcal batch produced 600 kcal.
+- User reported migrations 0001-0003 all unapplied in the development database; none were applied. These implementation checks were not rerun during this documentation sync.
+
+At that milestone, quick-add meals, cumulative batch availability/inventory, batch editing/recalculation, portions/count units/conversions, and AI/API integration remained deferred. Quick Add is implemented in a later follow-on below. Final MVP polish and full desktop/mobile review remain outstanding.
+
+### Follow-on: Food Purchase and Cost History
+
+**Status: Implemented on 2026-10-25.** This follow-on adds a minimal actual-spend record and read-only cost timeline without introducing inventory or accounting behavior.
+
+- Added `FoodPurchase` for a description, purchase timestamp, amount paid, currency, and optional FoodItem, quantity/unit, and shop/source. It is separate from `PriceObservation`, `ConsumptionEntry`, and MealPrepBatch snapshots.
+- Added a purchase form, single-local-date Cost History page, and Food navigation link. The timeline labels actual purchases, estimated Meal Prep cost, ordinary consumption cost, and batch consumption separately.
+- Today shows actual purchases separately from estimated consumed-food cost; both use currency-specific totals and never combine unlike currencies. Saving a purchase does not create consumption, and consumption/Meal Prep does not create purchases.
+- Verification: `python manage.py check` passed; `python manage.py makemigrations --check --dry-run` reported no changes; `python manage.py test apps.food` passed with 116 tests; `python manage.py test apps.core apps.food` passed with 118 tests; `git diff --check` passed.
+- Migration 0004 adds `FoodPurchase`. Current `showmigrations food` reports 0001–0003 applied and 0004 unapplied; no migration was applied during this implementation.
+
+Receipt grouping/imports, bank/Finance accounting, budgets, purchase-to-inventory linkage, cumulative batch availability, and full desktop/mobile review remain deferred.
+
+### Follow-on: Quick Add consumption
+
+**Status: Implemented on 2026-10-26.** This follow-on records one-off meals as consumption without requiring a reusable FoodItem.
+
+- Added an explicit `ConsumptionEntry.is_quick_add` marker so marked Quick Add rows remain distinguishable from historical FoodItem/Batch rows whose source FK became null through `SET_NULL`.
+- Quick Add accepts a meal name, local date/time, optional category, optional nonnegative nutrition/cost estimates, and optional measured quantity/unit. Quantity and unit are either both absent or a positive `g`/`ml` pair.
+- Quick Add stores manual-estimate provenance, creates no FoodItem or FoodPurchase, and appears as `QUICK ADD` in Cost History while contributing only to estimated consumed cost.
+- Quick Add edits directly replace entered estimates; catalogue recalculation is not offered. Existing FoodItem and Batch edits remain unchanged, and deletion stays POST-only.
+- Migration 0005 adds the marker and permits null quantity/unit only for Quick Add. It is unapplied in the current development database.
+
+Receipt processing/OCR, AI estimation, restaurant integrations, automatic purchase creation, reusable FoodItem promotion, inventory, portions/count units/conversions, and full desktop/mobile review remain deferred.
+
 - `README.md` — existing setup and project structure; update only if the implemented workflow makes the development instructions materially stale.
 - `backend/apps/food/models.py` — minimum persistent Food models and validation.
 - `backend/apps/food/services/` — reusable nutrition, cost, and daily aggregation logic; create only the smallest service files needed.

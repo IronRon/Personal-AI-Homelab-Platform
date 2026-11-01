@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+
+{% block title %}Meal Prep | Food{% endblock %}
+
+{% block content %}
+  {% include 'food/_navigation.html' %}
+  <section class="hero">
+    <h1>Meal Prep</h1>
+    <p>Cooked batches with actual ingredients and historical nutrition and cost snapshots.</p>
+    <div class="actions">
+      <a href="{% url 'meal_prep_create' %}" class="button">Create batch</a>
+    </div>
+  </section>
+
+  <section class="page-shell">
+    {% if batches %}
+      <table class="data-table">
+        <thead>
+          <tr><th>Batch</th><th>Cooked</th><th>Source Recipe</th><th>Yield</th><th>Ingredients</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for batch in batches %}
+            <tr>
+              <td>{{ batch.name }}</td>
+              <td>{{ batch.cooked_at|date:'j M Y, H:i' }}</td>
+              <td>{% if batch.recipe %}{{ batch.recipe.name }}{% else %}Direct batch{% endif %}</td>
+              <td>{{ batch.yield_quantity }} {{ batch.yield_unit }}</td>
+              <td>{{ batch.ingredients.all|length }}</td>
+              <td><a href="{% url 'meal_prep_detail' batch.pk %}">View batch</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty-state">No batches yet. Create one directly or start from a Recipe.</p>
+    {% endif %}
+  </section>
+{% endblock %}

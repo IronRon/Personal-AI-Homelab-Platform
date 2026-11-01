@@ -1,11 +1,18 @@
 from datetime import date, datetime, time
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 from django.db import transaction
 from django.utils import timezone
 
-from ..models import ConsumptionEntry, FoodItem, PriceObservation
-from .calculations import DailyTotals, aggregate_daily, calculate_consumption
+from ..models import ConsumptionEntry, FoodItem, MealPrepBatch, PriceObservation
+from .calculations import (
+    DailyTotals,
+    aggregate_daily,
+    calculate_batch_totals,
+    calculate_consumption,
+    scale_batch_totals,
+)
 
 
 UNSET = object()
@@ -86,6 +93,164 @@ def create_consumption_entry(
 
 
 @transaction.atomic
+def create_quick_add_entry(
+    *,
+    source_name: str,
+    consumed_at=None,
+    meal_category: str = '',
+    quantity: Optional[Decimal] = None,
+    unit: str = '',
+    calories: Optional[Decimal] = None,
+    protein: Optional[Decimal] = None,
+    carbohydrates: Optional[Decimal] = None,
+    fat: Optional[Decimal] = None,
+    estimated_cost: Optional[Decimal] = None,
+    currency: str = '',
+) -> ConsumptionEntry:
+    """Create a one-off consumption entry from user-entered estimates."""
+    entry = ConsumptionEntry(
+        is_quick_add=True,
+        source_name=source_name,
+        quantity=quantity,
+        unit=unit,
+        consumed_at=_as_aware(consumed_at),
+        meal_category=meal_category,
+        calories=calories,
+        protein=protein,
+        carbohydrates=carbohydrates,
+        fat=fat,
+        estimated_cost=estimated_cost,
+        currency=currency if estimated_cost is not None else '',
+        nutrition_source=(
+            'manual estimate'
+            if any(value is not None for value in (calories, protein, carbohydrates, fat))
+            else ''
+        ),
+        cost_source='manual estimate' if estimated_cost is not None else '',
+    )
+    entry.full_clean()
+    entry.save()
+    return entry
+
+
+@transaction.atomic
+def update_quick_add_entry(
+    entry: ConsumptionEntry,
+    *,
+    source_name: str,
+    consumed_at=None,
+    meal_category=None,
+    quantity: Optional[Decimal],
+    unit: str,
+    calories: Optional[Decimal],
+    protein: Optional[Decimal],
+    carbohydrates: Optional[Decimal],
+    fat: Optional[Decimal],
+    estimated_cost: Optional[Decimal],
+    currency: str,
+) -> ConsumptionEntry:
+    """Replace user-entered Quick Add values without catalogue recalculation."""
+    if not entry.is_quick_add:
+        raise ValueError('Only Quick Add entries can be edited as user-entered estimates.')
+    entry.source_name = source_name
+    entry.quantity = quantity
+    entry.unit = unit
+    if consumed_at is not None:
+        entry.consumed_at = _as_aware(consumed_at)
+    if meal_category is not None:
+        entry.meal_category = meal_category
+    entry.calories = calories
+    entry.protein = protein
+    entry.carbohydrates = carbohydrates
+    entry.fat = fat
+    entry.estimated_cost = estimated_cost
+    entry.currency = currency if estimated_cost is not None else ''
+    entry.nutrition_source = (
+        'manual estimate'
+        if any(value is not None for value in (calories, protein, carbohydrates, fat))
+        else ''
+    )
+    entry.cost_source = 'manual estimate' if estimated_cost is not None else ''
+    entry.full_clean()
+    entry.save()
+    return entry
+
+
+def _snapshot_sources(batch: MealPrepBatch, field: str, *, known_costs_only: bool = False) -> str:
+    ingredients = batch.ingredients.all()
+    if known_costs_only:
+        ingredients = ingredients.filter(estimated_cost__isnull=False)
+    sources = sorted({
+        source
+        for source in ingredients.values_list(field, flat=True)
+        if source
+    })
+    return '; '.join(sources)[:120]
+
+
+def _is_batch_consumption_entry(entry: ConsumptionEntry) -> bool:
+    """Recognize batch entries after SET_NULL using their stable source label."""
+    return bool(
+        entry.meal_prep_batch_id
+        or (
+            entry.food_item_id is None
+            and entry.price_observation_id is None
+            and entry.source_name.startswith('Meal Prep Batch: ')
+        )
+    )
+
+
+@transaction.atomic
+def create_batch_consumption_entry(
+    batch: MealPrepBatch,
+    *,
+    consumed_quantity: Decimal,
+    unit: str,
+    consumed_at=None,
+    meal_category: str = '',
+) -> ConsumptionEntry:
+    """Log one amount from a batch using its stored ingredient snapshots only."""
+    if batch is None or batch.pk is None:
+        raise ValueError('A saved meal-prep batch is required.')
+    try:
+        batch = MealPrepBatch.objects.select_for_update().get(pk=batch.pk)
+    except MealPrepBatch.DoesNotExist as error:
+        raise ValueError('The selected meal-prep batch is no longer available.') from error
+
+    try:
+        consumed_quantity = Decimal(consumed_quantity)
+    except (InvalidOperation, TypeError, ValueError) as error:
+        raise ValueError('Consumed quantity must be greater than zero.') from error
+    yield_quantity = Decimal(batch.yield_quantity)
+    if not consumed_quantity.is_finite() or consumed_quantity <= 0:
+        raise ValueError('Consumed quantity must be greater than zero.')
+    if not yield_quantity.is_finite() or yield_quantity <= 0:
+        raise ValueError('Batch yield must be greater than zero.')
+    if unit != batch.yield_unit:
+        raise ValueError('Consumed unit must match the meal-prep batch yield unit.')
+    if consumed_quantity > yield_quantity:
+        raise ValueError('Consumed quantity cannot exceed the batch yield.')
+
+    totals = calculate_batch_totals(batch)
+    snapshots = scale_batch_totals(totals, consumed_quantity, yield_quantity)
+    entry = ConsumptionEntry(
+        meal_prep_batch=batch,
+        source_name=f'Meal Prep Batch: {batch.name}'[:200],
+        quantity=consumed_quantity,
+        unit=unit,
+        consumed_at=_as_aware(consumed_at),
+        meal_category=meal_category,
+        currency=totals.currency if totals.cost_complete and totals.currency else '',
+        nutrition_source=_snapshot_sources(batch, 'nutrition_source'),
+        cost_source=_snapshot_sources(batch, 'cost_source', known_costs_only=True),
+        **snapshots,
+    )
+    entry.full_clean()
+    entry.save()
+    return entry
+
+
+@transaction.atomic
 def recalculate_consumption_entry(
     entry: ConsumptionEntry,
     *,
@@ -98,6 +263,11 @@ def recalculate_consumption_entry(
     confirmed: bool = False,
 ) -> ConsumptionEntry:
     """Explicitly replace snapshots using current catalogue values."""
+    if _is_batch_consumption_entry(entry):
+        # The original values came from batch snapshots, not catalogue inputs.
+        raise ValueError('Batch-backed entries cannot be recalculated from catalogue values.')
+    if entry.is_quick_add:
+        raise ValueError('Quick Add estimates cannot be recalculated from catalogue values.')
     if not confirmed:
         raise ValueError('Explicit confirmation is required before recalculation.')
 
@@ -181,7 +351,7 @@ def get_consumption_entries_for_date(reporting_date: date, tz=None):
     return ConsumptionEntry.objects.filter(
         consumed_at__gte=start,
         consumed_at__lte=end,
-    ).select_related('food_item', 'price_observation')
+    ).select_related('food_item', 'price_observation', 'meal_prep_batch')
 
 
 def get_daily_summary(reporting_date: Optional[date] = None, tz=None) -> DailyTotals:

@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if is_edit %}Edit Quick Add{% else %}Quick Add Meal{% endif %} | Food{% endblock %}
+
+{% block content %}
+  {% include 'food/_navigation.html' %}
+  <section class="page-shell">
+    <h1>{% if is_edit %}Edit Quick Add{% else %}Quick Add Meal{% endif %}</h1>
+    <p class="muted">For one-off food without a catalogue entry. Nutrition and cost may be estimates; leave unknown values blank. Add reusable foods to the catalogue instead.</p>
+    {% if is_edit %}
+      <p class="info-box">Quick-add estimates can be corrected directly. Values are saved as entered and are never recalculated from catalogue data.</p>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <div class="form-grid">
+        {% for field in form %}
+          <p>
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+            {{ field.errors }}
+          </p>
+        {% endfor %}
+      </div>
+      <div class="actions">
+        <button type="submit" class="button">{% if is_edit %}Save Quick Add{% else %}Save to food log{% endif %}</button>
+        {% if is_edit %}
+          <a href="{% url 'food_history' %}" class="button secondary">Cancel</a>
+        {% else %}
+          <a href="{% url 'food_today' %}" class="button secondary">Cancel</a>
+        {% endif %}
+      </div>
+    </form>
+  </section>
+{% endblock %}

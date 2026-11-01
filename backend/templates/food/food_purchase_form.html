@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+
+{% block title %}Record Food Purchase | Food{% endblock %}
+
+{% block content %}
+  {% include 'food/_navigation.html' %}
+  <section class="page-shell">
+    <h1>Record Food Purchase</h1>
+    <p class="muted">Record money actually spent. This does not create a consumption entry or change catalogue prices.</p>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <div class="form-grid">
+        {% for field in form %}
+          <p>
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+            {{ field.errors }}
+          </p>
+        {% endfor %}
+      </div>
+      <div class="actions">
+        <button type="submit" class="button">Record purchase</button>
+        <a href="{% url 'food_cost_history' %}" class="button secondary">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

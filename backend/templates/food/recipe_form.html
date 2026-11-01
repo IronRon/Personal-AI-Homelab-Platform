@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if is_edit %}Edit{% else %}Create{% endif %} Recipe | Food{% endblock %}
+
+{% block content %}
+  {% include 'food/_navigation.html' %}
+  <section class="page-shell">
+    <h1>{% if is_edit %}Edit Recipe{% else %}Create Recipe{% endif %}</h1>
+    <p class="muted">A Recipe is a reusable plan. Its estimates use current catalogue nutrition and price data.</p>
+
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <div class="form-grid">
+        {% for field in form %}
+          <p>
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+            {{ field.errors }}
+          </p>
+        {% endfor %}
+      </div>
+      <div class="actions">
+        <button type="submit" class="button">Save Recipe</button>
+        <a href="{% if is_edit %}{% url 'recipe_detail' recipe.pk %}{% else %}{% url 'recipe_list' %}{% endif %}" class="button secondary">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

@@ -9,8 +9,10 @@
     <p>Consumption totals for the selected local reporting date. Estimated consumed cost is separate from money spent buying groceries.</p>
     <div class="actions">
       <a href="{% url 'consumption_create' %}" class="button">Log food or drink</a>
+      <a href="{% url 'quick_add_consumption' %}" class="button secondary">Quick add meal</a>
       <a href="{% url 'catalogue' %}" class="button secondary">Food catalogue</a>
       <a href="{% url 'food_history' %}?date={{ reporting_date|date:'Y-m-d' }}" class="button secondary">History</a>
+      <a href="{% url 'food_cost_history' %}?date={{ reporting_date|date:'Y-m-d' }}" class="button secondary">Cost History</a>
     </div>
   </section>
 
@@ -32,7 +34,26 @@
       <article class="summary-card"><span>Protein</span><strong>{% if summary.protein_complete %}{{ summary.protein }} g{% else %}Incomplete{% endif %}</strong></article>
       <article class="summary-card"><span>Carbohydrates</span><strong>{% if summary.carbohydrates_complete %}{{ summary.carbohydrates }} g{% else %}Incomplete{% endif %}</strong></article>
       <article class="summary-card"><span>Fat</span><strong>{% if summary.fat_complete %}{{ summary.fat }} g{% else %}Incomplete{% endif %}</strong></article>
-      <article class="summary-card"><span>Estimated consumed cost</span><strong>{% if summary.cost_complete %}{{ summary.estimated_cost }} EUR{% else %}Incomplete{% endif %}</strong></article>
+      <article class="summary-card">
+        <span>Estimated consumed cost</span>
+        <strong>
+          {% if summary.costs_by_currency %}
+            {% for currency, amount in summary.costs_by_currency.items %}
+              {{ amount }} {{ currency }}{% if not summary.cost_complete %} partial{% endif %}{% if not forloop.last %}<br>{% endif %}
+            {% endfor %}
+          {% elif summary.cost_complete %}—{% else %}Incomplete{% endif %}
+        </strong>
+      </article>
+      <article class="summary-card">
+        <span>Food purchased</span>
+        <strong>
+          {% if purchases_by_currency %}
+            {% for currency, amount in purchases_by_currency.items %}
+              {{ amount }} {{ currency }}{% if not forloop.last %}<br>{% endif %}
+            {% endfor %}
+          {% else %}No purchases{% endif %}
+        </strong>
+      </article>
     </div>
 
     <h2>Consumed entries</h2>
@@ -47,9 +68,9 @@
               <tr>
                 <td>{{ entry.consumed_at|date:'H:i' }}{% if entry.meal_category %}<br /><span class="muted">{{ entry.get_meal_category_display }}</span>{% endif %}</td>
                 <td>{{ entry.source_name }}</td>
-                <td>{{ entry.quantity }} {{ entry.unit }}</td>
+                <td>{% if entry.quantity is not None %}{{ entry.quantity }} {{ entry.unit }}{% else %}One meal{% endif %}</td>
                 <td>{{ entry.calories|default_if_none:'—' }} kcal<br />{{ entry.protein|default_if_none:'—' }} g protein</td>
-                <td>{{ entry.estimated_cost|default_if_none:'—' }}{% if entry.estimated_cost %} {{ entry.currency }}{% endif %}</td>
+                <td>{% if entry.estimated_cost is not None %}{{ entry.estimated_cost }} {{ entry.currency }}{% else %}—{% endif %}</td>
                 <td><a href="{% url 'consumption_edit' entry.pk %}">Edit</a></td>
               </tr>
             {% endfor %}

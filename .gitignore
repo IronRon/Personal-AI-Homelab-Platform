@@ -99,3 +99,12 @@ desktop.ini
 *.temp
 .tmp/
 tmp/
+
+# Local AI conversation data
+chat_history.json
+chat_archive.jsonl
+
+# Generated AI memory
+memory.json
+memory.md
+session_summary.md

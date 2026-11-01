@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+
+{% block title %}Log Batch Consumption | Food{% endblock %}
+
+{% block content %}
+  {% include 'food/_navigation.html' %}
+  <section class="page-shell">
+    <h1>Log as eaten</h1>
+    <p class="muted">Batch: {{ batch.name }} · Cooked {{ batch.cooked_at|date:'j F Y, H:i' }} · Yield {{ batch.yield_quantity }} {{ batch.yield_unit }}</p>
+
+    <section>
+      <h2>Historical batch totals</h2>
+      {% if totals_error %}
+        <p class="warning" role="status">The stored batch totals are inconsistent and cannot be combined.</p>
+      {% elif totals %}
+        {% if not totals.nutrition_complete or not totals.cost_complete %}
+          <p class="warning" role="status">
+            {% if not totals.nutrition_complete %}One or more nutrition totals are incomplete. {% endif %}
+            {% if not totals.cost_complete %}Batch cost is incomplete.{% endif %}
+          </p>
+        {% endif %}
+        <div class="summary-grid" aria-label="Historical batch totals">
+          <article class="summary-card"><span>Calories</span><strong>{% if totals.calories_complete %}{{ totals.calories }} kcal{% else %}Incomplete{% endif %}</strong></article>
+          <article class="summary-card"><span>Protein</span><strong>{% if totals.protein_complete %}{{ totals.protein }} g{% else %}Incomplete{% endif %}</strong></article>
+          <article class="summary-card"><span>Carbohydrates</span><strong>{% if totals.carbohydrates_complete %}{{ totals.carbohydrates }} g{% else %}Incomplete{% endif %}</strong></article>
+          <article class="summary-card"><span>Fat</span><strong>{% if totals.fat_complete %}{{ totals.fat }} g{% else %}Incomplete{% endif %}</strong></article>
+          <article class="summary-card"><span>Historical cost</span><strong>{% if totals.cost_complete %}{{ totals.estimated_cost }} {{ totals.currency }}{% else %}Incomplete{% endif %}</strong></article>
+        </div>
+      {% endif %}
+    </section>
+
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      {{ form.unit }}
+      <div class="form-grid">
+        {% for field in form %}
+          {% if field.name != 'unit' %}
+            <p>
+              {{ field.label_tag }}
+              {{ field }}
+              {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+              {{ field.errors }}
+            </p>
+          {% endif %}
+        {% endfor %}
+        <p>
+          <label>Unit</label>
+          <span>{{ batch.yield_unit }}</span>
+          {{ form.unit.errors }}
+        </p>
+      </div>
+      <div class="actions">
+        {% if not totals_error %}<button type="submit" class="button">Save consumption</button>{% endif %}
+        <a href="{% url 'meal_prep_detail' batch.pk %}" class="button secondary">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}
