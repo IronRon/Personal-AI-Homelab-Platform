@@ -30,9 +30,9 @@ def home(request):
         },
         {
             'name': 'AI Assistant',
-            'description': 'A local, tool-aware assistant for daily workflows.',
-            'link': '#',
-            'coming_soon': True,
+            'description': 'Chat with your local Ollama model.',
+            'link': reverse('assistant_chat'),
+            'coming_soon': False,
         },
     ]
     return render(request, 'core/home.html', {'modules': modules})

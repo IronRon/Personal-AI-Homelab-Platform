@@ -1,0 +1,291 @@
+{% extends 'base.html' %}
+
+{% block title %}AI Assistant | Personal AI Homelab Platform{% endblock %}
+
+{% block content %}
+<style>
+  .assistant-page { max-width: 1240px; margin: 0 auto; }
+  .assistant-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:1.25rem; }
+  .assistant-heading h1 { margin:0 0 .4rem; font-size:clamp(1.7rem,4vw,2.4rem); }
+  .assistant-heading p { margin:0; color:var(--muted); line-height:1.5; }
+  .assistant-status { display:inline-flex; align-items:center; gap:.5rem; color:#bbf7d0; font-size:.82rem; white-space:nowrap; }
+  .status-dot { width:8px; height:8px; border-radius:50%; background:#22c55e; box-shadow:0 0 10px #22c55e88; }
+  .assistant-layout { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:1rem; align-items:start; }
+  .chat-panel,.reasoning-panel { border:1px solid var(--border); border-radius:16px; background:rgba(15,23,42,.72); overflow:hidden; }
+  .chat-toolbar { display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.9rem 1rem; border-bottom:1px solid var(--border); }
+  .model-label { color:var(--muted); font-size:.82rem; }
+  .model-label strong { color:var(--text); }
+  .chat-log { min-height:420px; max-height:62vh; overflow-y:auto; padding:1.2rem; display:flex; flex-direction:column; gap:1rem; }
+  .welcome { margin:auto; max-width:620px; text-align:center; padding:2rem 1rem; }
+  .welcome-mark { display:grid; place-items:center; width:54px; height:54px; border-radius:16px; margin:0 auto 1rem; background:rgba(56,189,248,.14); color:#7dd3fc; font-size:1.5rem; }
+  .welcome h2 { margin:.2rem 0 .6rem; }
+  .welcome p { color:var(--muted); line-height:1.6; }
+  .chat-message { display:flex; gap:.7rem; max-width:92%; align-items:flex-start; }
+  .chat-message.user { align-self:flex-end; flex-direction:row-reverse; }
+  .avatar { flex:0 0 32px; width:32px; height:32px; display:grid; place-items:center; border-radius:10px; background:#1e293b; color:#bae6fd; font-size:.78rem; font-weight:700; }
+  .chat-message.user .avatar { background:#075985; color:#e0f2fe; }
+  .message-body { min-width:0; }
+  .message-role { color:var(--muted); font-size:.72rem; margin:0 0 .3rem .1rem; }
+  .message-content { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; border:1px solid var(--border); border-radius:4px 14px 14px 14px; padding:.8rem 1rem; background:rgba(30,41,59,.8); }
+  .chat-message.user .message-content { background:rgba(3,105,161,.24); border-color:rgba(56,189,248,.25); border-radius:14px 4px 14px 14px; }
+  .message-thinking { margin-top:.55rem; }
+  .message-thinking summary { color:#7dd3fc; cursor:pointer; font-size:.78rem; }
+  .message-thinking pre { white-space:pre-wrap; overflow-wrap:anywhere; color:#cbd5e1; font: .78rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; background:rgba(2,6,23,.55); padding:.8rem; border-radius:10px; max-height:260px; overflow:auto; }
+  .quick-prompts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem; padding:0 1rem 1rem; }
+  .quick-prompt { text-align:left; padding:.7rem .8rem; border:1px solid var(--border); border-radius:10px; background:rgba(30,41,59,.55); color:var(--text); cursor:pointer; font:inherit; font-size:.82rem; line-height:1.35; }
+  .quick-prompt:hover { border-color:rgba(56,189,248,.6); background:rgba(56,189,248,.09); }
+  .composer { border-top:1px solid var(--border); padding:1rem; }
+  .composer form { display:flex; align-items:flex-end; gap:.7rem; }
+  .composer textarea { flex:1; min-height:48px; max-height:160px; resize:vertical; border:1px solid rgba(148,163,184,.35); border-radius:12px; padding:.8rem .9rem; color:var(--text); background:#0b1220; font:inherit; }
+  .composer textarea:focus { outline:2px solid rgba(56,189,248,.45); border-color:#38bdf8; }
+  .send-button { border:0; border-radius:10px; padding:.8rem 1.1rem; background:var(--accent); color:#082f49; font-weight:700; cursor:pointer; min-height:46px; }
+  .send-button:disabled,.quick-prompt:disabled { opacity:.5; cursor:not-allowed; }
+  .composer-note { color:var(--muted); font-size:.72rem; margin:.55rem 0 0; }
+  .error-banner { margin:0 1rem 1rem; padding:.75rem .9rem; border:1px solid rgba(248,113,113,.4); border-radius:10px; color:#fecaca; background:rgba(127,29,29,.2); }
+  .reasoning-panel { position:sticky; top:88px; }
+  .reasoning-header { padding:1rem; border-bottom:1px solid var(--border); }
+  .reasoning-header h2 { font-size:1rem; margin:0 0 .35rem; }
+  .reasoning-header p,.reasoning-content p { color:var(--muted); font-size:.8rem; line-height:1.5; margin:0; }
+  .reasoning-content { padding:1rem; }
+  .reasoning-content pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:55vh; overflow:auto; font:.76rem/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; color:#cbd5e1; }
+  .reasoning-empty { padding:1rem; border:1px dashed var(--border); border-radius:10px; color:var(--muted); font-size:.82rem; line-height:1.5; }
+  .subtle-button { border:1px solid var(--border); background:transparent; color:var(--text); border-radius:9px; padding:.5rem .7rem; cursor:pointer; font:inherit; font-size:.78rem; }
+  .subtle-button:hover { border-color:var(--accent); }
+  .typing { color:var(--muted); font-size:.82rem; padding:.3rem .2rem; }
+  @media(max-width:850px) { .assistant-layout { grid-template-columns:1fr; } .reasoning-panel { position:static; } .reasoning-content pre { max-height:260px; } }
+  @media(max-width:560px) { .assistant-heading { flex-direction:column; } .assistant-status { white-space:normal; } .chat-log { min-height:340px; padding:.9rem; } .quick-prompts { grid-template-columns:1fr; } .chat-message { max-width:100%; } .composer form { align-items:stretch; flex-direction:column; } .send-button { width:100%; } }
+</style>
+
+<section class="assistant-page">
+  <div class="assistant-heading">
+    <div>
+      <h1>AI Assistant</h1>
+      <p>A private chat interface powered by the Ollama model running on this PC.</p>
+    </div>
+    <div class="assistant-status"><span class="status-dot"></span> Local model · {{ ollama_model }}</div>
+  </div>
+
+  <div class="assistant-layout">
+    <section class="chat-panel" aria-label="Chat with local AI">
+      <div class="chat-toolbar">
+        <div class="model-label">Model <strong>{{ ollama_model }}</strong></div>
+        <button class="subtle-button" type="button" id="new-chat-button">＋ New conversation</button>
+      </div>
+
+      <div class="chat-log" id="chat-log" aria-live="polite">
+        <div class="welcome" id="welcome">
+          <div class="welcome-mark">✦</div>
+          <h2>What would you like to work on?</h2>
+          <p>Ask a question, explore an idea, or use one of the prompts below. This chat remembers the recent messages in this browser session.</p>
+        </div>
+      </div>
+
+      <div class="quick-prompts" id="quick-prompts">
+        <button class="quick-prompt" type="button" data-prompt="What can you help me with on this personal AI homelab platform?">✦ Explore what you can do</button>
+        <button class="quick-prompt" type="button" data-prompt="Help me break a large software project into manageable steps.">▤ Plan a project</button>
+        <button class="quick-prompt" type="button" data-prompt="Explain a technical concept clearly, using a simple example.">⌘ Explain a technical topic</button>
+        <button class="quick-prompt" type="button" data-prompt="Help me brainstorm a few practical, high-protein meal ideas. Do not assume you can access my personal food log.">◉ Brainstorm meal ideas</button>
+      </div>
+
+      <div id="error-banner" class="error-banner" role="alert" hidden></div>
+
+      <div class="composer">
+        <form id="chat-form">
+          {% csrf_token %}
+          <textarea id="chat-input" name="message" placeholder="Message your local assistant..." rows="2" maxlength="8000" required></textarea>
+          <button class="send-button" id="send-button" type="submit">Send ↑</button>
+        </form>
+        <p class="composer-note">Enter to send · Shift + Enter for a new line · Voice input can be added later</p>
+      </div>
+    </section>
+
+    <aside class="reasoning-panel" aria-label="Model reasoning panel">
+      <div class="reasoning-header">
+        <h2>Model reasoning</h2>
+        <p>Optional thinking text returned by Ollama for the latest response.</p>
+      </div>
+      <div class="reasoning-content" id="reasoning-content">
+        <div class="reasoning-empty">The model's optional thinking output will appear here after a response. It may be empty or incomplete.</div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+{{ chat_messages|json_script:"initial-chat-messages" }}
+
+<script>
+(() => {
+  const chatLog = document.getElementById("chat-log");
+  const input = document.getElementById("chat-input");
+  const form = document.getElementById("chat-form");
+  const sendButton = document.getElementById("send-button");
+  const newChatButton = document.getElementById("new-chat-button");
+  const quickPrompts = document.getElementById("quick-prompts");
+  const errorBanner = document.getElementById("error-banner");
+  const reasoningContent = document.getElementById("reasoning-content");
+  const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]").value;
+  let isSending = false;
+
+  function makeMessage(role, content, thinking = "") {
+    const row = document.createElement("article");
+    row.className = `chat-message ${role}`;
+
+    const avatar = document.createElement("div");
+    avatar.className = "avatar";
+    avatar.textContent = role === "user" ? "You" : "AI";
+
+    const body = document.createElement("div");
+    body.className = "message-body";
+
+    const label = document.createElement("div");
+    label.className = "message-role";
+    label.textContent = role === "user" ? "You" : "Assistant";
+
+    const text = document.createElement("div");
+    text.className = "message-content";
+    text.textContent = content;
+
+    body.append(label, text);
+
+    if (role === "assistant" && thinking) {
+      const details = document.createElement("details");
+      details.className = "message-thinking";
+      const summary = document.createElement("summary");
+      summary.textContent = "View thinking text";
+      const pre = document.createElement("pre");
+      pre.textContent = thinking;
+      details.append(summary, pre);
+      body.append(details);
+    }
+
+    row.append(avatar, body);
+    return row;
+  }
+
+  function showWelcomeIfEmpty() {
+    if (!chatLog.querySelector(".chat-message") && !document.getElementById("welcome")) {
+      const welcome = document.createElement("div");
+      welcome.className = "welcome";
+      welcome.id = "welcome";
+      welcome.innerHTML = '<div class="welcome-mark">✦</div><h2>What would you like to work on?</h2><p>Ask a question, explore an idea, or use one of the prompts below. This chat remembers the recent messages in this browser session.</p>';
+      chatLog.append(welcome);
+    }
+  }
+
+  function renderMessage(message) {
+    const welcome = document.getElementById("welcome");
+    if (welcome) welcome.remove();
+    chatLog.append(makeMessage(message.role, message.content, message.thinking || ""));
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  function showReasoning(thinking) {
+    reasoningContent.replaceChildren();
+    if (!thinking) {
+      const empty = document.createElement("div");
+      empty.className = "reasoning-empty";
+      empty.textContent = "No thinking text was returned for this response.";
+      reasoningContent.append(empty);
+      return;
+    }
+    const pre = document.createElement("pre");
+    pre.textContent = thinking;
+    reasoningContent.append(pre);
+  }
+
+  async function sendMessage(message) {
+    if (isSending || !message.trim()) return;
+    isSending = true;
+    errorBanner.hidden = true;
+    sendButton.disabled = true;
+    newChatButton.disabled = true;
+    quickPrompts.querySelectorAll("button").forEach(button => button.disabled = true);
+    const welcome = document.getElementById("welcome");
+    if (welcome) welcome.remove();
+    renderMessage({role: "user", content: message});
+    const typing = document.createElement("div");
+    typing.className = "typing";
+    typing.textContent = "The local model is thinking…";
+    chatLog.append(typing);
+    chatLog.scrollTop = chatLog.scrollHeight;
+
+    try {
+      const response = await fetch("{% url 'assistant_chat_api' %}", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfToken
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({message})
+      });
+      const data = await response.json();
+      typing.remove();
+      if (!response.ok) throw new Error(data.error || "The request failed.");
+      renderMessage({role: "assistant", content: data.answer, thinking: data.thinking});
+      showReasoning(data.thinking);
+      input.value = "";
+    } catch (error) {
+      typing.remove();
+      errorBanner.textContent = error.message || "Something went wrong.";
+      errorBanner.hidden = false;
+    } finally {
+      isSending = false;
+      sendButton.disabled = false;
+      newChatButton.disabled = false;
+      quickPrompts.querySelectorAll("button").forEach(button => button.disabled = false);
+      input.focus();
+      showWelcomeIfEmpty();
+    }
+  }
+
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    sendMessage(input.value);
+  });
+
+  input.addEventListener("keydown", event => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  quickPrompts.addEventListener("click", event => {
+    const button = event.target.closest("[data-prompt]");
+    if (button) sendMessage(button.dataset.prompt);
+  });
+
+  newChatButton.addEventListener("click", async () => {
+    if (isSending) return;
+    try {
+      const response = await fetch("{% url 'assistant_new_conversation' %}", {
+        method: "POST",
+        headers: {"X-CSRFToken": csrfToken},
+        credentials: "same-origin"
+      });
+      if (!response.ok) throw new Error("Could not start a new conversation.");
+      chatLog.replaceChildren();
+      showWelcomeIfEmpty();
+      showReasoning("");
+      errorBanner.hidden = true;
+      input.value = "";
+      input.focus();
+    } catch (error) {
+      errorBanner.textContent = error.message;
+      errorBanner.hidden = false;
+    }
+  });
+
+  try {
+    const initial = JSON.parse(document.getElementById("initial-chat-messages").textContent);
+    initial.forEach(renderMessage);
+    const latestAssistant = [...initial].reverse().find(item => item.role === "assistant");
+    if (latestAssistant) showReasoning(latestAssistant.thinking || "");
+    showWelcomeIfEmpty();
+  } catch (_) {
+    showWelcomeIfEmpty();
+  }
+})();
+</script>
+{% endblock %}

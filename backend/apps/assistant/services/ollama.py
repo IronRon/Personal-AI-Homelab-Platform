@@ -52,20 +52,32 @@ class OllamaService:
             else settings.OLLAMA_TIMEOUT_SECONDS
         )
 
-    def chat(self, message: str) -> OllamaChatResponse:
-        """Send a user message and return the answer and optional thinking."""
+    def chat(self, message: str, history=None) -> OllamaChatResponse:
+        """Send a message with optional prior conversation context."""
 
         if not isinstance(message, str) or not message.strip():
             raise ValueError("Message cannot be empty.")
 
+        conversation = []
+        if history is not None:
+            if not isinstance(history, list):
+                raise ValueError("Conversation history must be a list.")
+
+            for item in history:
+                if not isinstance(item, dict):
+                    raise ValueError("Conversation history contains an invalid item.")
+                role = item.get("role")
+                content = item.get("content")
+                if role not in ("user", "assistant") or not isinstance(content, str):
+                    raise ValueError("Conversation history contains an invalid message.")
+                if content.strip():
+                    conversation.append({"role": role, "content": content.strip()})
+
+        conversation.append({"role": "user", "content": message.strip()})
+
         payload = {
             "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": message.strip(),
-                }
-            ],
+            "messages": conversation,
             "stream": False,
             "think": settings.OLLAMA_THINK,
         }

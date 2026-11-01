@@ -2,7 +2,6 @@
 import json
 import socket
 
-from unittest import result
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError, URLError
 
@@ -57,6 +56,36 @@ class OllamaServiceTests(SimpleTestCase):
         mock_urlopen.assert_called_once_with(
             request,
             timeout=120,
+        )
+
+    @patch("apps.assistant.services.ollama.urlopen")
+    def test_chat_includes_previous_conversation_history(self, mock_urlopen):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps({
+            "message": {
+                "role": "assistant",
+                "content": "You said blue.",
+            }
+        }).encode("utf-8")
+        mock_urlopen.return_value = response
+
+        self.service.chat(
+            "What colour did I say?",
+            history=[
+                {"role": "user", "content": "My favourite colour is blue."},
+                {"role": "assistant", "content": "Got it."},
+            ],
+        )
+
+        request = mock_urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(
+            payload["messages"],
+            [
+                {"role": "user", "content": "My favourite colour is blue."},
+                {"role": "assistant", "content": "Got it."},
+                {"role": "user", "content": "What colour did I say?"},
+            ],
         )
 
     @patch("apps.assistant.services.ollama.urlopen")
