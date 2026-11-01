@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+
+{% block title %}Create Meal Prep Batch | Food{% endblock %}
+
+{% block content %}
+  {% include 'food/_navigation.html' %}
+  <section class="page-shell">
+    <h1>Create Meal Prep Batch</h1>
+    <p class="muted">Record what went into the cooked batch. Nutrition and cost are captured from current catalogue values when you create it.</p>
+
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <div class="form-grid">
+        {% for field in form %}
+          <p>
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+            {{ field.errors }}
+          </p>
+        {% endfor %}
+      </div>
+      <div class="actions">
+        <button type="submit" class="button secondary" name="action" value="load_recipe">Load planned ingredients</button>
+      </div>
+
+      <section style="margin-top: 1.25rem;">
+        <h2>Actual ingredients</h2>
+        {{ formset.management_form }}
+        {{ formset.non_form_errors }}
+        <div style="overflow-x: auto;">
+          <table class="data-table">
+            <thead>
+              <tr><th>Food item</th><th>Actual quantity</th><th>Unit</th><th>Price observation</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for ingredient_form in formset %}
+                {% if ingredient_form.cleaned_data.DELETE %}
+                  <tr hidden>{{ ingredient_form.DELETE }}</tr>
+                {% else %}
+                  <tr>
+                    <td>{{ ingredient_form.food_item }}{{ ingredient_form.food_item.errors }}</td>
+                    <td>{{ ingredient_form.quantity }}{{ ingredient_form.quantity.errors }}</td>
+                    <td>{{ ingredient_form.unit }}{{ ingredient_form.unit.errors }}</td>
+                    <td>{{ ingredient_form.price_observation }}{{ ingredient_form.price_observation.errors }}</td>
+                    <td>
+                      <button type="submit" class="link-button danger-link" name="remove_index" value="{{ forloop.counter0 }}">Remove</button>
+                    </td>
+                  </tr>
+                {% endif %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="actions">
+          <button type="submit" class="button secondary" name="action" value="add_ingredient">Add ingredient row</button>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button type="submit" class="button" name="action" value="create">Create batch</button>
+        <a href="{% url 'meal_prep_list' %}" class="button secondary">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

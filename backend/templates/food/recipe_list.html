@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+
+{% block title %}Recipes | Personal AI Homelab Platform{% endblock %}
+
+{% block content %}
+  {% include 'food/_navigation.html' %}
+  <section class="hero">
+    <h1>Recipes</h1>
+    <p>Reusable meal plans with nutrition and cost estimates based on current catalogue values.</p>
+    <div class="actions">
+      <a href="{% url 'recipe_create' %}" class="button">Create Recipe</a>
+    </div>
+  </section>
+
+  <section class="page-shell">
+    {% if recipes %}
+      <div class="cards" aria-label="Recipes">
+        {% for recipe in recipes %}
+          <article class="card">
+            <h2>{{ recipe.name }}</h2>
+            <p>{{ recipe.ingredients.count }} planned ingredient{{ recipe.ingredients.count|pluralize }}</p>
+            <div class="actions">
+              <a href="{% url 'recipe_detail' recipe.pk %}" class="button secondary">View recipe</a>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty-state">No recipes yet. Create a recipe to save a reusable meal plan.</p>
+    {% endif %}
+  </section>
+{% endblock %}

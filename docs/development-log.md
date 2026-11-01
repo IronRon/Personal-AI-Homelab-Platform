@@ -2,6 +2,196 @@
 
 This is the chronological record of meaningful development work on the Personal AI Homelab Platform. Entries are newest first. Design documents describe intended requirements and rationale; this log records work actually performed and verification evidence.
 
+## 2026-10-26 — Quick Add Meals
+
+**Area:** Food / Consumption
+
+**Summary:**
+Added a one-off Quick Add path for logging food without first creating a reusable FoodItem.
+
+**Completed:**
+
+
+**Technical decisions:**
+
+
+**Testing and verification:**
+
+- `git diff --check` passed. No browser or desktop/mobile review was performed.
+- `showmigrations food` reports 0001-0004 applied and 0005 unapplied; no migration was applied during this slice.
+
+**Known issues / deferred work:**
+
+
+**Next steps:**
+
+
+**Git status:**
+
+- Implementation and documentation edits are uncommitted; no staging, commit, or push was performed.
+
+## 2026-10-25 — Food Purchase and Cost History
+
+**Area:** Food / Purchase and Cost History
+
+**Summary:**
+Added a minimal actual Food purchase record and a Cost History view that keeps purchases distinct from estimated Meal Prep and consumption costs.
+
+**Completed:**
+
+- Added `FoodPurchase` with description, purchase timestamp, actual amount/currency, and optional FoodItem, quantity/unit, and source.
+- Added purchase creation and a local-date Cost History timeline with distinct PURCHASE, MEAL PREP, CONSUMPTION, and ATE FROM BATCH events.
+- Today now shows actual purchase totals separately from estimated consumed cost, grouped by currency.
+- Added focused model/form/service, event-classification, date-filter, Today separation, and no-double-counting tests.
+
+**Technical decisions:**
+
+- `PriceObservation` remains catalogue pricing, not proof of purchase. Saving a purchase creates no consumption entry; consuming food or creating/eating a Batch creates no purchase record.
+- Meal Prep and consumption values remain estimated snapshot events. They never add to actual purchase spending, and currencies are not converted or combined.
+- Migration `0004_foodpurchase` is additive. It was not applied during this implementation.
+
+**Testing and verification:**
+
+- `python manage.py check` passed.
+- `python manage.py makemigrations --check --dry-run` reported no changes.
+- `python manage.py test apps.food` passed: 116 tests.
+- `python manage.py test apps.core apps.food` passed: 118 tests.
+- `git diff --check` passed.
+- `showmigrations food` reported migrations 0001–0003 applied and 0004 unapplied.
+- Full browser and desktop/mobile review were not performed.
+
+**Known issues / deferred work:**
+
+- Receipt grouping/imports, bank/Finance accounting, budgets, purchase-to-inventory links, stock depletion, quick-add meals, cumulative Batch availability, portions/conversions, AI/API work, and final MVP polish remain deferred.
+
+**Next steps:**
+
+- Continue Food MVP polish and later evaluate the deferred Finance and inventory boundaries separately.
+
+**Git status:**
+
+- Implementation and documentation changes are uncommitted; no staging, commit, or push was performed.
+
+## 2026-10-25 — Meal Prep Batch UI and Consumption
+
+**Area:** Food / Meal Prep UI
+
+**Summary:**
+Added server-rendered Meal Prep Batch creation and historical detail, then connected saved batches to the unified consumption log.
+
+**Completed:**
+
+- Added a batch list; creation from the Recipe detail action or directly; Recipe selection and an explicit “Load planned ingredients” POST action; editable actual rows; and a read-only detail page.
+- Add/remove ingredient rows use server-rendered POST round-trips without JavaScript. Existing PriceObservation selection rules apply; blank rows are ignored and at least one active ingredient is required.
+- Only final submission calls transactional `create_meal_prep_batch()`, which owns validation and snapshots. Read-only detail calls `calculate_batch_totals()` over stored snapshots and shows totals/completeness.
+- Added batch navigation and focused form/workflow coverage for price policy, units, invalid-value retention, mixed-currency rejection, Recipe prefill, row actions, and snapshot stability.
+- Added a “Log as eaten” flow from batch detail. It records an amount, timestamp, and optional meal category in `ConsumptionEntry`, then redirects to the local-date Food Today view.
+- Batch consumption scales saved ingredient nutrition/cost snapshots by consumed amount relative to batch yield. Unknown components remain unknown; known costs retain their currency and unlike currencies are not combined.
+- Added nullable batch provenance to `ConsumptionEntry`, source constraints, and migration compatibility coverage for existing entries.
+
+**Technical decisions:**
+
+- Recipe planned rows can be copied into editable actual rows; selecting a Recipe alone does not persist ingredient rows. Interim POST actions only rebuild the form; final creation is the persistence boundary.
+- Price input selects existing observations; nutrition, cost, and provenance snapshots remain owned by `create_meal_prep_batch()`.
+- Completed batches are read-only and historical totals use stored snapshots. This UI slice made no schema changes or dependency additions.
+- New entries require exactly one source through model/service validation; database constraints reject two simultaneous sources but do not independently enforce source presence. Batch-backed entries cannot reference a price observation.
+- Deleting a batch nulls its optional foreign key without erasing the entry's source name or nutrition/cost snapshots. Batch-backed entries cannot be recalculated from catalogue values, including after that link is cleared.
+- Each consumed amount is limited to the batch yield, but cumulative consumption across entries is not capped and remaining availability is not tracked.
+
+**Testing and verification:**
+
+- User-reported implementation-run results, not rerun during this documentation sync: `python manage.py check` passed; `python manage.py makemigrations --check --dry-run` reported no changes; Food tests passed (105); Core + Food tests passed (107); `git diff --check` passed; and the migration compatibility test passed.
+- User-reported calculation check passed: consuming 300 g from a 1,200 g batch with 2,400 kcal snapshots produced 600 kcal.
+- User reported migrations 0001-0003 all unapplied in the development database and none applied. No migration was applied during this documentation sync.
+- Checks rerun during this documentation sync: none. Command execution was unavailable, so `git diff --check`, `git diff --cached --check`, `python manage.py check`, and `python manage.py makemigrations --check --dry-run` could not be rerun.
+- Browser smoke covered only the batch list and one-row create form. Broader browser-flow checks and desktop/mobile review remain outstanding.
+
+**Known issues / deferred work:**
+
+- Basic purchase history, quick-add meals, cumulative batch availability/inventory, portions/count units/conversions, batch editing/recalculation, AI/API work, and manual snapshot overrides remain deferred.
+- Final MVP polish and full desktop/mobile review remain outstanding; the reported browser smoke did not cover the batch-consumption flow.
+
+**Next steps:**
+
+- Continue with prioritized Food MVP polish and deferred purchase-history, quick-add, availability, and responsive-review work.
+
+**Git status:**
+
+- No staging, commit, or push was performed during this documentation sync. Fresh `git status` and staged/unstaged diffs could not be queried in this session.
+
+### 2026-10-25 — Recipe Management UI
+**Area:** Food / Recipe UI
+
+**Summary:**
+Added server-rendered Recipe management and planned ingredient workflows on top of the existing Food data foundation.
+
+**Completed:**
+
+- Added Recipe list, metadata create/edit, detail, and planned ingredient create/edit/POST-only removal routes and pages, plus a Recipes link in Food navigation.
+- Recipe detail calls the existing estimate service. Estimates use current FoodItem and PriceObservation values, show completeness independently for calories, protein, carbohydrates, fat, and cost, and do not present incomplete subtotals as complete totals.
+- Added server-rendered price choices using the existing zero/one/multiple observation policy, Recipe-parent scoping for ingredient updates/removal, and friendly handling when catalogue edits make a stored ingredient selection invalid.
+- Added focused Recipe UI tests for list/detail, create/edit, ingredient CRUD and validation, price policy, live estimate updates, missing data, mixed currencies, stale catalogue data, and absence of batch/consumption side effects.
+
+**Technical decisions:**
+
+- Recipe estimates remain dynamic; editing Recipe metadata or planned ingredients does not create batch snapshots.
+- Views delegate nutrition and cost calculations to `calculate_recipe_estimate()`.
+- RecipeIngredient removal is POST-only and lookup is constrained to its parent Recipe.
+- No schema changes or migration were needed.
+
+**Testing and verification:**
+
+- Reported for the Recipe UI implementation: `python manage.py check` passed; `python manage.py makemigrations --check --dry-run` reported no changes; `python manage.py test apps.food` passed with 72 tests; the full Django suite passed with 74 tests; and `git diff --check` passed.
+- These implementation checks were not rerun during this documentation-sync pass.
+
+**Known issues / deferred work:**
+
+- Meal Prep Batch forms, views, templates, browser-based batch creation, and batch-backed `ConsumptionEntry` remain future work.
+- Count-based portions, servings, unit conversion, inventory, purchase accounting, arbitrary nutrition/cost overrides, AI, and APIs remain deferred.
+
+### 2026-10-25 — Recipe and Meal-Prep Data Foundation
+**Area:** Food / Data Layer
+
+**Summary:**
+Added the first Recipe and meal-prep batch data foundation to the existing Food Django app. Recipe estimates remain dynamic; cooked batch ingredient values are historical snapshots.
+
+**Completed:**
+
+- Added `Recipe` and `RecipeIngredient` for reusable plans using existing `FoodItem` records.
+- Added `MealPrepBatch` and `BatchIngredient` for actual cooking events, positive gram/millilitre yield, actual ingredient inputs, and copied nutrition/cost/currency/name/provenance snapshots.
+- Added dynamic recipe estimates, batch total aggregation from snapshots only, shared price-selection behavior, independent nutrient/cost completeness, and rejection of mixed known-cost currencies.
+- Added transactional batch creation with explicit model validation. Recipe deletion preserves batches; deleting FoodItems or price observations nulls batch references while preserving snapshots; recipe ingredient FoodItem references are protected.
+- Changed `backend/apps/food/models.py` and `backend/apps/food/services/calculations.py`; added `backend/apps/food/services/meal_prep.py`; extended `backend/apps/food/tests.py`.
+- Added additive migration `backend/apps/food/migrations/0002_recipe_mealprepbatch_recipeingredient_and_more.py` and focused model, calculation, and service coverage in `backend/apps/food/tests.py`.
+- Added short code docstrings/comments at the estimate, snapshot, completeness, currency, and transactional-validation boundaries.
+
+**Technical decisions:**
+
+- `FoodItem` remains the shared ingredient/product catalogue; Recipe estimates use current catalogue values.
+- BatchIngredient snapshots, not current catalogue or Recipe records, are the source for historical batch totals.
+- Missing values remain nullable and mark their corresponding totals incomplete. Known subtotals do not imply complete totals.
+- Batch creation validates with `full_clean()` because model `save()` does not call it, and the transaction prevents partial batches.
+- The batch service accepts actual input rows and an optional Recipe association; it does not yet copy RecipeIngredient rows automatically.
+
+**Testing and verification:**
+
+- `python manage.py check` passed.
+- `python manage.py makemigrations --check --dry-run` reported no changes.
+- `python manage.py test apps.food` passed: 57 tests.
+- `python manage.py test` passed: 59 tests.
+- `git diff --check` passed.
+- The migration was not applied to the development database.
+
+**Known issues / deferred work:**
+
+- No recipe/batch forms, views, URLs, templates, or user-facing workflows were added.
+- `ConsumptionEntry` does not yet reference batches; yield-based batch consumption remains future work.
+- Count-based portions, conversions, inventory, purchase accounting, arbitrary nutrition/cost overrides, AI, and infrastructure remain deferred.
+
+**Git status:**
+
+- Implementation paths were already staged when documentation synchronization began. No staging, commit, or push was performed during this work; documentation and comment updates remain unstaged.
+
 ### 2026-10-11 — Phase 4 Food Verification and User Experience
 **Area:** Food / Core UI
 

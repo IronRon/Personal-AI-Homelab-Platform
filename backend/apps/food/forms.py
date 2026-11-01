@@ -1,7 +1,193 @@
 from django import forms
+from django.forms import formset_factory
 from django.utils import timezone
+from decimal import Decimal
 
-from .models import ConsumptionEntry, FoodItem, PriceObservation
+from .models import (
+    ConsumptionEntry,
+    FoodItem,
+    FoodPurchase,
+    MealPrepBatch,
+    PriceObservation,
+    Recipe,
+    RecipeIngredient,
+)
+from .services.calculations import select_price_observation
+
+
+class MealPrepBatchForm(forms.ModelForm):
+    cooked_at = forms.DateTimeField(
+        input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M',
+            attrs={'type': 'datetime-local'},
+        ),
+    )
+
+    class Meta:
+        model = MealPrepBatch
+        fields = ['name', 'recipe', 'cooked_at', 'yield_quantity', 'yield_unit']
+        labels = {
+            'name': 'Batch name',
+            'recipe': 'Source Recipe',
+            'cooked_at': 'Cooked date and time',
+            'yield_quantity': 'Final yield',
+            'yield_unit': 'Yield unit',
+        }
+        help_texts = {
+            'recipe': 'Optional. Planned ingredients can be loaded and then adjusted below.',
+            'yield_quantity': 'Enter the finished batch weight or volume.',
+        }
+        widgets = {
+            'yield_quantity': forms.NumberInput(attrs={'step': '0.001', 'min': '0.001'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['recipe'].required = False
+        self.fields['recipe'].queryset = Recipe.objects.order_by('name', 'id')
+        if not self.is_bound and not self.initial.get('cooked_at'):
+            self.initial['cooked_at'] = timezone.localtime(
+                timezone.now(),
+            ).strftime('%Y-%m-%dT%H:%M')
+
+
+class BatchIngredientForm(forms.Form):
+    """Collect actual batch inputs; snapshot values are created by the batch service."""
+
+    food_item = forms.ModelChoiceField(
+        queryset=FoodItem.objects.order_by('name', 'brand'),
+        required=False,
+        label='Food item',
+        widget=forms.Select(attrs={'aria-label': 'Food item'}),
+    )
+    quantity = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=3,
+        min_value=0.001,
+        label='Actual quantity',
+        widget=forms.NumberInput(attrs={
+            'step': '0.001',
+            'min': '0.001',
+            'aria-label': 'Actual quantity',
+        }),
+    )
+    unit = forms.ChoiceField(
+        choices=FoodItem.BASIS_UNITS,
+        required=False,
+        label='Unit',
+        widget=forms.Select(attrs={'aria-label': 'Unit'}),
+    )
+    price_observation = forms.ModelChoiceField(
+        queryset=PriceObservation.objects.select_related('food_item').order_by(
+            '-observed_at', '-id',
+        ),
+        required=False,
+        empty_label='No price / unknown cost',
+        label='Price observation',
+        widget=forms.Select(attrs={'aria-label': 'Price observation'}),
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        food_item = cleaned_data.get('food_item')
+        quantity = cleaned_data.get('quantity')
+        unit = cleaned_data.get('unit')
+        price_observation = cleaned_data.get('price_observation')
+        has_other_values = any((quantity, unit, price_observation))
+
+        if food_item is None:
+            if has_other_values:
+                self.add_error('food_item', 'Choose a food item for this ingredient row.')
+            return cleaned_data
+
+        if quantity is None:
+            self.add_error('quantity', 'Enter a positive actual quantity.')
+        if not unit:
+            self.add_error('unit', 'Choose the ingredient unit.')
+        elif unit != food_item.nutrition_basis_unit:
+            self.add_error('unit', 'Unit must match the selected food item nutrition basis.')
+
+        if unit == food_item.nutrition_basis_unit:
+            try:
+                cleaned_data['price_observation'] = select_price_observation(
+                    food_item,
+                    price_observation,
+                )
+            except ValueError as error:
+                self.add_error('price_observation', str(error))
+
+        return cleaned_data
+
+
+BatchIngredientFormSet = formset_factory(
+    BatchIngredientForm,
+    extra=0,
+    can_delete=True,
+    min_num=1,
+    validate_min=True,
+)
+
+
+class RecipeForm(forms.ModelForm):
+    class Meta:
+        model = Recipe
+        fields = ['name', 'instructions']
+        labels = {
+            'name': 'Recipe name',
+            'instructions': 'Instructions',
+        }
+        help_texts = {
+            'instructions': 'Optional preparation notes for this reusable plan.',
+        }
+        widgets = {
+            'instructions': forms.Textarea(attrs={'rows': 5}),
+        }
+
+
+class RecipeIngredientForm(forms.ModelForm):
+    class Meta:
+        model = RecipeIngredient
+        fields = ['food_item', 'quantity', 'unit', 'price_observation']
+        labels = {
+            'food_item': 'Food item',
+            'quantity': 'Planned quantity',
+            'unit': 'Unit',
+            'price_observation': 'Price observation',
+        }
+        help_texts = {
+            'quantity': 'Use a positive quantity in grams or millilitres.',
+            'unit': 'Must match the selected food item nutrition basis.',
+            'price_observation': 'One price is used automatically; choose explicitly if several are available. Leave blank if cost is unknown.',
+        }
+        widgets = {
+            'quantity': forms.NumberInput(attrs={'step': '0.001', 'min': '0.001'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['price_observation'].required = False
+        self.fields['price_observation'].empty_label = 'No price / unknown cost'
+        self.fields['price_observation'].queryset = PriceObservation.objects.select_related(
+            'food_item',
+        ).order_by('-observed_at', '-id')
+
+    def clean(self):
+        cleaned_data = super().clean()
+        food_item = cleaned_data.get('food_item')
+        if food_item is None:
+            return cleaned_data
+
+        try:
+            # Reuse the shared zero/one/multiple-observation policy for saved recipe inputs.
+            cleaned_data['price_observation'] = select_price_observation(
+                food_item,
+                cleaned_data.get('price_observation'),
+            )
+        except ValueError as error:
+            self.add_error('price_observation', str(error))
+        return cleaned_data
 
 
 class FoodItemForm(forms.ModelForm):
@@ -105,6 +291,53 @@ class PriceObservationForm(forms.ModelForm):
         return package_unit
 
 
+class FoodPurchaseForm(forms.ModelForm):
+    purchased_at = forms.DateTimeField(
+        input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M',
+            attrs={'type': 'datetime-local'},
+        ),
+        label='Purchase date and time',
+    )
+
+    class Meta:
+        model = FoodPurchase
+        fields = [
+            'description',
+            'food_item',
+            'purchased_at',
+            'amount_paid',
+            'currency',
+            'quantity',
+            'unit',
+            'source',
+        ]
+        labels = {
+            'description': 'What did you buy?',
+            'food_item': 'Catalogue item (optional)',
+            'amount_paid': 'Amount paid',
+            'currency': 'Currency',
+            'quantity': 'Purchased quantity (optional)',
+            'unit': 'Unit (optional)',
+            'source': 'Shop or source (optional)',
+        }
+        widgets = {
+            'amount_paid': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+            'quantity': forms.NumberInput(attrs={'step': '0.001', 'min': '0.001'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['food_item'].required = False
+        self.fields['food_item'].queryset = FoodItem.objects.order_by('name', 'brand')
+        self.fields['currency'].initial = 'EUR'
+        if not self.is_bound and not self.initial.get('purchased_at'):
+            self.initial['purchased_at'] = timezone.localtime(
+                timezone.now(),
+            ).strftime('%Y-%m-%dT%H:%M')
+
+
 class ConsumptionEntryForm(forms.ModelForm):
     consumed_at = forms.DateTimeField(
         input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
@@ -181,4 +414,181 @@ class ConsumptionEntryForm(forms.ModelForm):
                     'price_observation',
                     'Select a price observation when multiple prices are available.',
                 )
+        return cleaned_data
+
+
+class QuickAddConsumptionForm(forms.Form):
+    source_name = forms.CharField(max_length=200, label='Meal or food name')
+    consumed_at = forms.DateTimeField(
+        input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M',
+            attrs={'type': 'datetime-local'},
+        ),
+        label='Consumed date and time',
+    )
+    meal_category = forms.ChoiceField(
+        choices=(('', 'No category'),) + ConsumptionEntry.MEAL_CATEGORIES,
+        required=False,
+        label='Meal category',
+    )
+    quantity = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=3,
+        min_value=Decimal('0.001'),
+        label='Amount (optional)',
+        widget=forms.NumberInput(attrs={'step': '0.001', 'min': '0.001'}),
+    )
+    unit = forms.ChoiceField(
+        choices=(('', 'No measured amount'),) + FoodItem.BASIS_UNITS,
+        required=False,
+        label='Unit (optional)',
+    )
+    calories = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=2,
+        min_value=0,
+        label='Calories (optional)',
+        widget=forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+    )
+    protein = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=2,
+        min_value=0,
+        label='Protein in g (optional)',
+        widget=forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+    )
+    carbohydrates = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=2,
+        min_value=0,
+        label='Carbohydrates in g (optional)',
+        widget=forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+    )
+    fat = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=2,
+        min_value=0,
+        label='Fat in g (optional)',
+        widget=forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+    )
+    estimated_cost = forms.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=2,
+        min_value=0,
+        label='Estimated consumed cost (optional)',
+        widget=forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+    )
+    currency = forms.CharField(required=False, max_length=3, label='Cost currency')
+
+    def __init__(self, *args, instance=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.instance = instance
+        if instance is not None and not self.is_bound:
+            self.initial.update({
+                'source_name': instance.source_name,
+                'consumed_at': timezone.localtime(instance.consumed_at).strftime('%Y-%m-%dT%H:%M'),
+                'meal_category': instance.meal_category,
+                'quantity': instance.quantity,
+                'unit': instance.unit,
+                'calories': instance.calories,
+                'protein': instance.protein,
+                'carbohydrates': instance.carbohydrates,
+                'fat': instance.fat,
+                'estimated_cost': instance.estimated_cost,
+                'currency': instance.currency if instance.estimated_cost is not None else '',
+            })
+        if not self.is_bound and not self.initial.get('consumed_at'):
+            self.initial['consumed_at'] = timezone.localtime(
+                timezone.now(),
+            ).strftime('%Y-%m-%dT%H:%M')
+
+    def clean(self):
+        cleaned_data = super().clean()
+        quantity = cleaned_data.get('quantity')
+        unit = cleaned_data.get('unit')
+        estimated_cost = cleaned_data.get('estimated_cost')
+        currency = (cleaned_data.get('currency') or '').strip().upper()
+
+        if (quantity is None) != (not unit):
+            self.add_error('quantity', 'Enter both an amount and its unit, or leave both blank.')
+            self.add_error('unit', 'Enter both an amount and its unit, or leave both blank.')
+        if estimated_cost is not None and len(currency) != 3:
+            self.add_error('currency', 'Enter a three-character currency when entering an estimated cost.')
+        if estimated_cost is None:
+            cleaned_data['currency'] = ''
+        elif currency:
+            cleaned_data['currency'] = currency
+        return cleaned_data
+
+
+class ConsumptionMetadataForm(forms.ModelForm):
+    consumed_at = forms.DateTimeField(
+        input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M',
+            attrs={'type': 'datetime-local'},
+        ),
+        label='Consumed date and time',
+    )
+
+    class Meta:
+        model = ConsumptionEntry
+        fields = ['consumed_at', 'meal_category']
+        labels = {'meal_category': 'Meal category'}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk and self.instance.consumed_at:
+            self.initial['consumed_at'] = timezone.localtime(
+                self.instance.consumed_at,
+            ).strftime('%Y-%m-%dT%H:%M')
+
+
+class BatchConsumptionForm(forms.Form):
+    quantity = forms.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        min_value=Decimal('0.001'),
+        label='Amount consumed',
+        widget=forms.NumberInput(attrs={'step': '0.001', 'min': '0.001'}),
+    )
+    unit = forms.ChoiceField(choices=FoodItem.BASIS_UNITS, widget=forms.HiddenInput())
+    consumed_at = forms.DateTimeField(
+        input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M',
+            attrs={'type': 'datetime-local'},
+        ),
+        label='Consumed date and time',
+    )
+    meal_category = forms.ChoiceField(
+        choices=(('', 'No category'),) + ConsumptionEntry.MEAL_CATEGORIES,
+        required=False,
+        label='Meal category',
+    )
+
+    def __init__(self, batch, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.batch = batch
+        unit_label = dict(FoodItem.BASIS_UNITS).get(batch.yield_unit, batch.yield_unit)
+        self.fields['unit'].choices = [(batch.yield_unit, unit_label)]
+        self.fields['unit'].initial = batch.yield_unit
+        self.fields['quantity'].max_value = batch.yield_quantity
+        if not self.is_bound:
+            self.initial.setdefault('consumed_at', timezone.localtime(
+                timezone.now(),
+            ).strftime('%Y-%m-%dT%H:%M'))
+
+    def clean(self):
+        cleaned_data = super().clean()
+        unit = cleaned_data.get('unit')
+        if unit and unit != self.batch.yield_unit:
+            self.add_error('unit', 'Unit must match the batch yield unit.')
         return cleaned_data
