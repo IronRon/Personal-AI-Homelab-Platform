@@ -70,6 +70,23 @@
   .reasoning-empty { padding:1rem; border:1px dashed var(--border); border-radius:10px; color:var(--muted); font-size:.82rem; line-height:1.5; }
   .subtle-button { border:1px solid var(--border); background:transparent; color:var(--text); border-radius:9px; padding:.5rem .7rem; cursor:pointer; font:inherit; font-size:.78rem; }
   .subtle-button:hover { border-color:var(--accent); }
+  .assistant-settings { border-bottom:1px solid var(--border); padding:.8rem 1rem; }
+  .assistant-settings summary { cursor:pointer; font-weight:650; }
+  .settings-body { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; padding-top:1rem; }
+  .settings-group { border:1px solid var(--border); border-radius:10px; padding:.8rem; min-width:0; }
+  .settings-group h3 { font-size:.9rem; margin:0 0 .6rem; }
+  .settings-group p { color:var(--muted); font-size:.76rem; line-height:1.45; margin:.2rem 0 .65rem; }
+  .setting-row { display:flex; align-items:flex-start; gap:.5rem; margin:.48rem 0; font-size:.8rem; overflow-wrap:anywhere; }
+  .setting-row input { margin-top:.18rem; accent-color:var(--accent); }
+  .settings-actions { grid-column:1/-1; display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; }
+  .settings-status { color:var(--muted); font-size:.76rem; }
+  .pending-action { margin-top:.7rem; padding:.8rem; border:1px solid rgba(245,158,11,.5); border-radius:10px; background:rgba(120,53,15,.16); }
+  .pending-action h3 { margin:0 0 .45rem; font-size:.9rem; }
+  .pending-action pre { max-height:220px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font-size:.76rem; }
+  .pending-action-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+  .confirm-button { border:0; border-radius:8px; padding:.55rem .8rem; background:#16a34a; color:#fff; font-weight:700; cursor:pointer; }
+  .cancel-button { border:1px solid var(--border); border-radius:8px; padding:.55rem .8rem; background:transparent; color:var(--text); cursor:pointer; }
+  @media(max-width:560px) { .settings-body { grid-template-columns:1fr; } }
   .typing { color:var(--muted); font-size:.82rem; padding:.3rem .2rem; }
   @media(max-width:850px) { .assistant-layout { grid-template-columns:1fr; } .reasoning-panel { position:static; } .reasoning-content pre { max-height:260px; } }
   @media(max-width:560px) { .assistant-heading { flex-direction:column; } .assistant-status { white-space:normal; } .chat-log { min-height:340px; padding:.9rem; } .quick-prompts { grid-template-columns:1fr; } .chat-message { max-width:100%; } .composer form { align-items:stretch; flex-direction:column; } .send-button { width:100%; } }
@@ -90,6 +107,35 @@
         <div class="model-label">Model <strong>{{ ollama_model }}</strong></div>
         <button class="subtle-button" type="button" id="new-chat-button">＋ New conversation</button>
       </div>
+      <details class="assistant-settings" id="assistant-settings">
+        <summary>⚙ Assistant settings · Read and write permissions</summary>
+        <div class="settings-body">
+          <section class="settings-group">
+            <h3>Read access</h3>
+            <p>Allow the assistant to inspect your Food records. You can control each read function separately.</p>
+            <label class="setting-row"><input type="checkbox" id="read-enabled" {% if assistant_permissions.read_enabled %}checked{% endif %}> Enable Food read access</label>
+            <div id="read-tool-options">
+              {% for tool in read_tool_names %}
+              <label class="setting-row"><input type="checkbox" class="read-tool" value="{{ tool }}" {% if tool in assistant_permissions.read_tools %}checked{% endif %}> <code>{{ tool }}</code></label>
+              {% endfor %}
+            </div>
+          </section>
+          <section class="settings-group">
+            <h3>Write access</h3>
+            <p>Disabled by default. When enabled, selected functions can prepare changes. Every change still requires your separate confirmation.</p>
+            <label class="setting-row"><input type="checkbox" id="write-enabled" {% if assistant_permissions.write_enabled %}checked{% endif %}> Enable Food write access</label>
+            <div id="write-tool-options">
+              {% for tool in write_tool_names %}
+              <label class="setting-row"><input type="checkbox" class="write-tool" value="{{ tool }}" {% if tool in assistant_permissions.write_tools %}checked{% endif %}> <code>{{ tool }}</code></label>
+              {% endfor %}
+            </div>
+          </section>
+          <div class="settings-actions">
+            <button class="subtle-button" type="button" id="save-settings-button">Save settings</button>
+            <span class="settings-status" id="settings-status">Settings apply to this browser session.</span>
+          </div>
+        </div>
+      </details>
 
       <div class="chat-log" id="chat-log" aria-live="polite">
         <div class="welcome" id="welcome">
@@ -131,6 +177,7 @@
 </section>
 
 {{ chat_messages|json_script:"initial-chat-messages" }}
+{{ pending_action|json_script:"pending-action-data" }}
 
 <script>
 (() => {
@@ -142,24 +189,33 @@
   const quickPrompts = document.getElementById("quick-prompts");
   const errorBanner = document.getElementById("error-banner");
   const reasoningContent = document.getElementById("reasoning-content");
+  const readEnabled = document.getElementById("read-enabled");
+  const writeEnabled = document.getElementById("write-enabled");
+  const saveSettingsButton = document.getElementById("save-settings-button");
+  const settingsStatus = document.getElementById("settings-status");
+  let pendingAction = null;
   const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]").value;
   let isSending = false;
 
   // A deliberately small, safe Markdown renderer. It builds DOM nodes and never
   // treats model output as HTML, so scripts or HTML in a response stay as text.
   function normaliseMarkdown(source) {
-    return String(source || "").replace(/\\([\\`*_{}\[\]()#+.!|>~-])/g, "$1");
+    return String(source || "")
+      .replace(/\\<br\s*\/?\s*>/gi, "<br>")
+      .replace(/\\([\\`*_{}\[\]()#+.!|>~-])/g, "$1");
   }
 
   function appendInline(parent, source) {
-    const pattern = /(\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*\n]+\*|_[^_\n]+_|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;
+    const pattern = /(<br\s*\/?\s*>|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*\n]+\*|_[^_\n]+_|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/gi;
     let cursor = 0;
     let match;
     while ((match = pattern.exec(source)) !== null) {
       if (match.index > cursor) parent.append(document.createTextNode(source.slice(cursor, match.index)));
       const token = match[0];
       let node;
-      if (token.startsWith("**") || token.startsWith("__")) {
+      if (/^<br\s*\/?\s*>$/i.test(token)) {
+        node = document.createElement("br");
+      } else if (token.startsWith("**") || token.startsWith("__")) {
         node = document.createElement("strong");
         appendInline(node, token.slice(2, -2));
       } else if (token.startsWith("~~")) {
@@ -327,7 +383,8 @@
     if (role === "assistant" && Array.isArray(toolsUsed) && toolsUsed.length) {
       const toolNote = document.createElement("div");
       toolNote.className = "message-role";
-      toolNote.textContent = `Food data accessed: ${toolsUsed.join(", ")}`;
+      const hasWriteFunction = toolsUsed.some(name => ["create_food_item", "create_recipe", "create_meal_prep_batch", "log_food_consumption", "log_meal_prep_portion"].includes(name));
+      toolNote.textContent = hasWriteFunction ? `Food write function used: ${toolsUsed.join(", ")}` : `Food data accessed: ${toolsUsed.join(", ")}`;
       body.append(toolNote);
     }
 
@@ -344,6 +401,100 @@
 
     row.append(avatar, body);
     return row;
+  }
+
+  function setSettingsEnabledState() {
+    document.querySelectorAll(".read-tool").forEach(control => { control.disabled = !readEnabled.checked; });
+    document.querySelectorAll(".write-tool").forEach(control => { control.disabled = !writeEnabled.checked; });
+  }
+
+  async function saveSettings() {
+    saveSettingsButton.disabled = true;
+    settingsStatus.textContent = "Saving…";
+    const payload = {
+      read_enabled: readEnabled.checked,
+      write_enabled: writeEnabled.checked,
+      read_tools: [...document.querySelectorAll(".read-tool:checked")].map(control => control.value),
+      write_tools: [...document.querySelectorAll(".write-tool:checked")].map(control => control.value)
+    };
+    try {
+      const response = await fetch("{% url 'assistant_settings_api' %}", {
+        method: "POST", headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+        credentials: "same-origin", body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save settings.");
+      settingsStatus.textContent = "Saved for this browser session.";
+      setSettingsEnabledState();
+    } catch (error) {
+      settingsStatus.textContent = error.message;
+    } finally {
+      saveSettingsButton.disabled = false;
+    }
+  }
+
+  function makePendingActionCard(action) {
+    const card = document.createElement("section");
+    card.className = "pending-action";
+    card.dataset.pendingAction = "true";
+    const heading = document.createElement("h3");
+    heading.textContent = "Review proposed Food change";
+    const note = document.createElement("p");
+    note.textContent = `Function: ${action.name}. Nothing has been changed yet.`;
+    const preview = document.createElement("pre");
+    preview.textContent = JSON.stringify(action.preview || action.arguments || {}, null, 2);
+    const actions = document.createElement("div");
+    actions.className = "pending-action-actions";
+    const confirm = document.createElement("button");
+    confirm.type = "button"; confirm.className = "confirm-button"; confirm.textContent = "Confirm and apply";
+    confirm.addEventListener("click", confirmPendingAction);
+    const cancel = document.createElement("button");
+    cancel.type = "button"; cancel.className = "cancel-button"; cancel.textContent = "Cancel";
+    cancel.addEventListener("click", cancelPendingAction);
+    actions.append(confirm, cancel);
+    card.append(heading, note, preview, actions);
+    return card;
+  }
+
+  function showPendingAction(action) {
+    pendingAction = action || null;
+    const old = chatLog.querySelector("[data-pending-action]");
+    if (old) old.remove();
+    if (pendingAction) {
+      const lastAssistant = [...chatLog.querySelectorAll(".chat-message.assistant")].at(-1);
+      if (lastAssistant) lastAssistant.querySelector(".message-body").append(makePendingActionCard(pendingAction));
+    }
+    input.disabled = Boolean(pendingAction);
+    sendButton.disabled = Boolean(pendingAction);
+    quickPrompts.querySelectorAll("button").forEach(button => { button.disabled = Boolean(pendingAction); });
+  }
+
+  async function confirmPendingAction() {
+    const card = chatLog.querySelector("[data-pending-action]");
+    const button = card && card.querySelector(".confirm-button");
+    if (button) button.disabled = true;
+    try {
+      const response = await fetch("{% url 'assistant_confirm_food_action' %}", {method:"POST", headers:{"X-CSRFToken":csrfToken}, credentials:"same-origin"});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "The change could not be completed.");
+      if (card) card.remove();
+      pendingAction = null;
+      input.disabled = false; sendButton.disabled = false;
+      renderMessage(data.message);
+    } catch (error) {
+      if (button) button.disabled = false;
+      errorBanner.textContent = error.message; errorBanner.hidden = false;
+    }
+  }
+
+  async function cancelPendingAction() {
+    try {
+      const response = await fetch("{% url 'assistant_cancel_food_action' %}", {method:"POST", headers:{"X-CSRFToken":csrfToken}, credentials:"same-origin"});
+      if (!response.ok) throw new Error("Could not cancel the proposed change.");
+      showPendingAction(null);
+    } catch (error) {
+      errorBanner.textContent = error.message; errorBanner.hidden = false;
+    }
   }
 
   function showWelcomeIfEmpty() {
@@ -378,7 +529,7 @@
   }
 
   async function sendMessage(message) {
-    if (isSending || !message.trim()) return;
+    if (isSending || pendingAction || !message.trim()) return;
     isSending = true;
     errorBanner.hidden = true;
     sendButton.disabled = true;
@@ -407,6 +558,7 @@
       typing.remove();
       if (!response.ok) throw new Error(data.error || "The request failed.");
       renderMessage({role: "assistant", content: data.answer, thinking: data.thinking, tools_used: data.tools_used || []});
+      showPendingAction(data.pending_action);
       showReasoning(data.thinking);
       input.value = "";
     } catch (error) {
@@ -415,13 +567,19 @@
       errorBanner.hidden = false;
     } finally {
       isSending = false;
-      sendButton.disabled = false;
+      sendButton.disabled = Boolean(pendingAction);
+      input.disabled = Boolean(pendingAction);
       newChatButton.disabled = false;
-      quickPrompts.querySelectorAll("button").forEach(button => button.disabled = false);
-      input.focus();
+      quickPrompts.querySelectorAll("button").forEach(button => { button.disabled = Boolean(pendingAction); });
+      if (!pendingAction) input.focus();
       showWelcomeIfEmpty();
     }
   }
+
+  readEnabled.addEventListener("change", setSettingsEnabledState);
+  writeEnabled.addEventListener("change", setSettingsEnabledState);
+  saveSettingsButton.addEventListener("click", saveSettings);
+  setSettingsEnabledState();
 
   form.addEventListener("submit", event => {
     event.preventDefault();
@@ -450,6 +608,8 @@
       });
       if (!response.ok) throw new Error("Could not start a new conversation.");
       chatLog.replaceChildren();
+      pendingAction = null;
+      input.disabled = false; sendButton.disabled = false;
       showWelcomeIfEmpty();
       showReasoning("");
       errorBanner.hidden = true;
@@ -463,10 +623,12 @@
 
   try {
     const initial = JSON.parse(document.getElementById("initial-chat-messages").textContent);
+    pendingAction = JSON.parse(document.getElementById("pending-action-data").textContent);
     initial.forEach(renderMessage);
     const latestAssistant = [...initial].reverse().find(item => item.role === "assistant");
     if (latestAssistant) showReasoning(latestAssistant.thinking || "");
     showWelcomeIfEmpty();
+    if (pendingAction) showPendingAction(pendingAction);
   } catch (_) {
     showWelcomeIfEmpty();
   }

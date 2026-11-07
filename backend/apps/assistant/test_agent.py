@@ -28,7 +28,8 @@ class AssistantAgentTests(SimpleTestCase):
         ]
         mock_tool.return_value = {"calories": "500.00"}
 
-        result = run_assistant_turn("How many calories today?")
+        from apps.assistant.services.agent import DEFAULT_PERMISSIONS
+        result = run_assistant_turn("How many calories today?", permissions=DEFAULT_PERMISSIONS)
 
         self.assertEqual(result["content"], "You have eaten 500 calories so far.")
         self.assertEqual(result["tools_used"], ["get_daily_food_summary"])
@@ -36,3 +37,23 @@ class AssistantAgentTests(SimpleTestCase):
         self.assertEqual(mock_tool.call_args.args[0], "get_daily_food_summary")
         self.assertEqual(mock_tool.call_args.args[1], {})
         self.assertEqual(mock_chat.call_count, 2)
+
+
+    @patch("apps.assistant.services.agent.OllamaService.chat_messages")
+    def test_disabled_read_tools_are_not_sent_to_ollama(self, mock_chat):
+        mock_chat.return_value = OllamaChatResponse(content="I cannot access Food records right now.")
+        result = run_assistant_turn("How many calories today?", permissions={"read_enabled": False, "write_enabled": False, "read_tools": [], "write_tools": []})
+        self.assertEqual(result["content"], "I cannot access Food records right now.")
+        self.assertIsNone(result["pending_action"])
+        self.assertIsNone(mock_chat.call_args.kwargs["tools"])
+
+    @patch("apps.assistant.services.agent.validate_food_write_tool")
+    @patch("apps.assistant.services.agent.OllamaService.chat_messages")
+    def test_write_tool_creates_proposal_without_executing_it(self, mock_chat, mock_validate):
+        mock_chat.return_value = OllamaChatResponse(content="", tool_calls=[{"function": {"name": "create_food_item", "arguments": {"name": "Chicken", "item_type": "ingredient", "nutrition_basis_unit": "g"}}}])
+        mock_validate.return_value = {"name": "Chicken"}
+        permissions = {"read_enabled": False, "write_enabled": True, "read_tools": [], "write_tools": ["create_food_item"]}
+        result = run_assistant_turn("Add chicken to my catalogue.", permissions=permissions)
+        self.assertEqual(result["pending_action"]["name"], "create_food_item")
+        self.assertEqual(result["pending_action"]["preview"], {"name": "Chicken"})
+        self.assertIn("confirm", result["content"].lower())
