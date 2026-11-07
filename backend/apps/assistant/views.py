@@ -5,11 +5,11 @@ from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
 
+from .services.agent import run_assistant_turn
 from .services.ollama import (
     OllamaConnectionError,
     OllamaHTTPError,
     OllamaResponseError,
-    OllamaService,
     OllamaTimeoutError,
 )
 
@@ -61,7 +61,7 @@ def chat_api(request):
     ][-MAX_HISTORY_MESSAGES:]
 
     try:
-        result = OllamaService().chat(message, history=history)
+        result = run_assistant_turn(message, history=history)
     except OllamaConnectionError:
         return JsonResponse(
             {"error": "Could not connect to Ollama. Make sure Ollama is running on this PC."},
@@ -84,16 +84,18 @@ def chat_api(request):
         {"role": "user", "content": message},
         {
             "role": "assistant",
-            "content": result.content,
-            "thinking": result.thinking,
+            "content": result["content"],
+            "thinking": result["thinking"],
+            "tools_used": result["tools_used"],
         },
     ])
     request.session[SESSION_MESSAGES_KEY] = stored_messages[-MAX_HISTORY_MESSAGES:]
     request.session.modified = True
 
     return JsonResponse({
-        "answer": result.content,
-        "thinking": result.thinking,
+        "answer": result["content"],
+        "thinking": result["thinking"],
+        "tools_used": result["tools_used"],
         "model": settings.OLLAMA_MODEL,
     })
 

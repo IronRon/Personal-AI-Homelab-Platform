@@ -81,10 +81,10 @@
       </div>
 
       <div class="quick-prompts" id="quick-prompts">
-        <button class="quick-prompt" type="button" data-prompt="What can you help me with on this personal AI homelab platform?">✦ Explore what you can do</button>
-        <button class="quick-prompt" type="button" data-prompt="Help me break a large software project into manageable steps.">▤ Plan a project</button>
-        <button class="quick-prompt" type="button" data-prompt="Explain a technical concept clearly, using a simple example.">⌘ Explain a technical topic</button>
-        <button class="quick-prompt" type="button" data-prompt="Help me brainstorm a few practical, high-protein meal ideas. Do not assume you can access my personal food log.">◉ Brainstorm meal ideas</button>
+        <button class="quick-prompt" type="button" data-prompt="How many calories and grams of protein have I logged today?">◉ Today's calories and protein</button>
+        <button class="quick-prompt" type="button" data-prompt="Show me my food consumption entries from the last 7 days.">▤ Recent food history</button>
+        <button class="quick-prompt" type="button" data-prompt="Search my food catalogue for chicken.">⌕ Search food catalogue</button>
+        <button class="quick-prompt" type="button" data-prompt="Show me my recent meal-prep batches and their nutrition information.">▦ Recent meal prep</button>
       </div>
 
       <div id="error-banner" class="error-banner" role="alert" hidden></div>
@@ -126,7 +126,7 @@
   const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]").value;
   let isSending = false;
 
-  function makeMessage(role, content, thinking = "") {
+  function makeMessage(role, content, thinking = "", toolsUsed = []) {
     const row = document.createElement("article");
     row.className = `chat-message ${role}`;
 
@@ -146,6 +146,13 @@
     text.textContent = content;
 
     body.append(label, text);
+
+    if (role === "assistant" && Array.isArray(toolsUsed) && toolsUsed.length) {
+      const toolNote = document.createElement("div");
+      toolNote.className = "message-role";
+      toolNote.textContent = `Food data accessed: ${toolsUsed.join(", ")}`;
+      body.append(toolNote);
+    }
 
     if (role === "assistant" && thinking) {
       const details = document.createElement("details");
@@ -175,7 +182,7 @@
   function renderMessage(message) {
     const welcome = document.getElementById("welcome");
     if (welcome) welcome.remove();
-    chatLog.append(makeMessage(message.role, message.content, message.thinking || ""));
+    chatLog.append(makeMessage(message.role, message.content, message.thinking || "", message.tools_used || []));
     chatLog.scrollTop = chatLog.scrollHeight;
   }
 
@@ -222,7 +229,7 @@
       const data = await response.json();
       typing.remove();
       if (!response.ok) throw new Error(data.error || "The request failed.");
-      renderMessage({role: "assistant", content: data.answer, thinking: data.thinking});
+      renderMessage({role: "assistant", content: data.answer, thinking: data.thinking, tools_used: data.tools_used || []});
       showReasoning(data.thinking);
       input.value = "";
     } catch (error) {

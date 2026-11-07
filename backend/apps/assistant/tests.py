@@ -163,3 +163,29 @@ class OllamaServiceTests(SimpleTestCase):
 
         self.assertEqual(result.content, "Hello!")
         self.assertEqual(result.thinking, "")
+
+    @patch("apps.assistant.services.ollama.urlopen")
+    def test_chat_messages_sends_tool_definitions_and_parses_tool_calls(self, mock_urlopen):
+        response = MagicMock()
+        tool_calls = [{"function": {"name": "get_daily_food_summary", "arguments": {}}}]
+        response.__enter__.return_value.read.return_value = json.dumps({
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": tool_calls,
+            }
+        }).encode("utf-8")
+        mock_urlopen.return_value = response
+
+        tools = [{"type": "function", "function": {"name": "get_daily_food_summary"}}]
+        result = self.service.chat_messages(
+            [{"role": "system", "content": "Use tools when appropriate."},
+             {"role": "user", "content": "How much protein today?"}],
+            tools=tools,
+        )
+
+        self.assertEqual(result.content, "")
+        self.assertEqual(result.tool_calls, tool_calls)
+        payload = json.loads(mock_urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(payload["tools"], tools)
+        self.assertEqual(payload["messages"][0]["role"], "system")

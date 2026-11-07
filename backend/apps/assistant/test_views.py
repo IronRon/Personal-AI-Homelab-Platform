@@ -4,7 +4,6 @@ from unittest.mock import patch
 from django.test import TestCase
 from django.urls import reverse
 
-from apps.assistant.services.ollama import OllamaChatResponse
 
 
 class AssistantChatViewTests(TestCase):
@@ -14,14 +13,15 @@ class AssistantChatViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "AI Assistant")
         self.assertContains(response, "qwen3.5:4b")
-        self.assertContains(response, "Brainstorm meal ideas")
+        self.assertContains(response, "Today's calories and protein")
 
-    @patch("apps.assistant.views.OllamaService.chat")
+    @patch("apps.assistant.views.run_assistant_turn")
     def test_chat_api_sends_message_and_saves_conversation(self, mock_chat):
-        mock_chat.return_value = OllamaChatResponse(
-            content="Hello from the local model.",
-            thinking="I am considering the response.",
-        )
+        mock_chat.return_value = {
+            "content": "Hello from the local model.",
+            "thinking": "I am considering the response.",
+            "tools_used": [],
+        }
 
         response = self.client.post(
             reverse("assistant_chat_api"),
@@ -32,14 +32,15 @@ class AssistantChatViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["answer"], "Hello from the local model.")
         self.assertEqual(response.json()["thinking"], "I am considering the response.")
+        self.assertEqual(response.json()["tools_used"], [])
         mock_chat.assert_called_once_with("Hello", history=[])
 
         page = self.client.get(reverse("assistant_chat"))
         self.assertContains(page, "Hello from the local model.")
 
-    @patch("apps.assistant.views.OllamaService.chat")
+    @patch("apps.assistant.views.run_assistant_turn")
     def test_follow_up_includes_previous_turns_as_context(self, mock_chat):
-        mock_chat.return_value = OllamaChatResponse(content="I remember.", thinking="")
+        mock_chat.return_value = {"content": "I remember.", "thinking": "", "tools_used": []}
 
         self.client.post(
             reverse("assistant_chat_api"),
