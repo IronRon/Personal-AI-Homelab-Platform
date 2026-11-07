@@ -1,0 +1,67 @@
+Assistant Food Edit/Delete Permissions
+======================================
+
+This patch builds on the installed Assistant Settings + Controlled Food Write Access
+patch. It adds individually permissioned edit/delete functions for catalogue items and
+recipes. Every operation still uses the existing server-stored proposal and explicit
+Confirm and apply / Cancel flow.
+
+NEW FUNCTIONS
+-------------
+- update_food_item: update only supplied catalogue fields. Nutrition values may be set
+  to null when the user explicitly wants them unknown. Changing g/ml basis is blocked
+  while the item is referenced by prices, recipes, purchases, consumption or batches.
+- delete_food_item: permanently delete an unused catalogue item. Deletion is blocked if
+  it has any price observations, recipe references, purchases, consumption entries or
+  meal-prep ingredient references, to protect linked and historical data.
+- update_recipe: update recipe name/instructions and optionally replace its full
+  ingredient list. Ingredient IDs, units and positive quantities are validated.
+- delete_recipe: permanently delete a recipe only when no meal-prep batches are linked.
+
+NOT INCLUDED
+------------
+- Editing/deleting historical consumption entries.
+- Editing/deleting meal-prep batches or price observations.
+- Bulk deletion or cascade deletion.
+
+Those operations need separate designs because they can alter historical tracking data.
+
+INSTALL
+-------
+1. Stop the Django development server with Ctrl+C.
+2. Commit your current working changes or back up the backend folder.
+3. From the repository root, extract this ZIP into .\backend:
+
+   Expand-Archive `
+       -LiteralPath "$env:USERPROFILE\Downloads\assistant-edit-delete.zip" `
+       -DestinationPath ".\backend" `
+       -Force
+
+   Adjust the ZIP path if your browser saved it elsewhere.
+
+4. Run from the backend folder:
+
+   cd .\backend
+   python manage.py check
+   python manage.py test apps.assistant
+   python manage.py test
+
+No migration or new package is required. The previous expected full suite count was 162;
+this patch adds five tests, so expect 167 if no other tests changed.
+
+MANUAL TESTS
+------------
+1. Open /assistant/ and expand Assistant Settings.
+2. Enable write access and select only update_food_item. Ask it to rename the temporary
+   Test Oats item. Check the proposal, cancel it, and verify the name did not change.
+3. Repeat and confirm. Search the catalogue to verify the new name.
+4. Enable delete_food_item and try deleting an unused temporary test item. Confirm only
+   after checking the proposal. Verify it disappears from the catalogue.
+5. Create/use an item in a recipe, then try deleting it. The assistant should explain
+   that deletion is blocked because the item is referenced.
+6. Test update_recipe with a test recipe. Replacing ingredients requires the complete
+   intended ingredient list; the proposed changes must be reviewed before confirmation.
+7. Verify the write-function attribution includes update_/delete_ operations.
+
+Keep write access disabled when you are not actively using it. Each function also has
+its own checkbox, and the backend rechecks permission at confirmation time.

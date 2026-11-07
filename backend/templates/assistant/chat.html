@@ -383,7 +383,7 @@
     if (role === "assistant" && Array.isArray(toolsUsed) && toolsUsed.length) {
       const toolNote = document.createElement("div");
       toolNote.className = "message-role";
-      const hasWriteFunction = toolsUsed.some(name => ["create_food_item", "create_recipe", "create_meal_prep_batch", "log_food_consumption", "log_meal_prep_portion"].includes(name));
+      const hasWriteFunction = toolsUsed.some(name => /^(create|update|delete|log)_/.test(name));
       toolNote.textContent = hasWriteFunction ? `Food write function used: ${toolsUsed.join(", ")}` : `Food data accessed: ${toolsUsed.join(", ")}`;
       body.append(toolNote);
     }
