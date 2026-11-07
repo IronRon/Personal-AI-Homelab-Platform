@@ -26,7 +26,26 @@
   .chat-message.user .avatar { background:#075985; color:#e0f2fe; }
   .message-body { min-width:0; }
   .message-role { color:var(--muted); font-size:.72rem; margin:0 0 .3rem .1rem; }
-  .message-content { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; border:1px solid var(--border); border-radius:4px 14px 14px 14px; padding:.8rem 1rem; background:rgba(30,41,59,.8); }
+  .message-content { overflow-wrap:anywhere; line-height:1.65; border:1px solid var(--border); border-radius:4px 14px 14px 14px; padding:.8rem 1rem; background:rgba(30,41,59,.8); }
+  .message-content > :first-child { margin-top:0; }
+  .message-content > :last-child { margin-bottom:0; }
+  .message-content p { margin:.45rem 0 .8rem; }
+  .message-content h1,.message-content h2,.message-content h3,.message-content h4 { line-height:1.3; margin:1rem 0 .5rem; }
+  .message-content h1 { font-size:1.25rem; }
+  .message-content h2 { font-size:1.12rem; }
+  .message-content h3,.message-content h4 { font-size:1rem; }
+  .message-content ul,.message-content ol { margin:.45rem 0 .85rem; padding-left:1.5rem; }
+  .message-content li { margin:.2rem 0; }
+  .message-content blockquote { margin:.7rem 0; padding:.25rem .8rem; border-left:3px solid var(--accent); color:var(--muted); background:rgba(2,6,23,.2); }
+  .message-content pre { overflow-x:auto; white-space:pre; padding:.8rem; border-radius:9px; background:rgba(2,6,23,.7); font:.82rem/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; }
+  .message-content code { padding:.12rem .3rem; border-radius:5px; background:rgba(2,6,23,.45); font:.88em ui-monospace,SFMono-Regular,Consolas,monospace; }
+  .message-content pre code { padding:0; background:transparent; }
+  .message-table-wrap { max-width:100%; overflow-x:auto; margin:.7rem 0; }
+  .message-content table { border-collapse:collapse; width:100%; min-width:300px; font-size:.9rem; }
+  .message-content th,.message-content td { padding:.5rem .65rem; border:1px solid var(--border); text-align:left; vertical-align:top; }
+  .message-content th { background:rgba(2,6,23,.35); }
+  .message-content hr { border:0; border-top:1px solid var(--border); margin:.9rem 0; }
+  .message-content a { color:#7dd3fc; text-decoration:underline; text-underline-offset:2px; }
   .chat-message.user .message-content { background:rgba(3,105,161,.24); border-color:rgba(56,189,248,.25); border-radius:14px 4px 14px 14px; }
   .message-thinking { margin-top:.55rem; }
   .message-thinking summary { color:#7dd3fc; cursor:pointer; font-size:.78rem; }
@@ -126,6 +145,160 @@
   const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]").value;
   let isSending = false;
 
+  // A deliberately small, safe Markdown renderer. It builds DOM nodes and never
+  // treats model output as HTML, so scripts or HTML in a response stay as text.
+  function normaliseMarkdown(source) {
+    return String(source || "").replace(/\\([\\`*_{}\[\]()#+.!|>~-])/g, "$1");
+  }
+
+  function appendInline(parent, source) {
+    const pattern = /(\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*\n]+\*|_[^_\n]+_|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;
+    let cursor = 0;
+    let match;
+    while ((match = pattern.exec(source)) !== null) {
+      if (match.index > cursor) parent.append(document.createTextNode(source.slice(cursor, match.index)));
+      const token = match[0];
+      let node;
+      if (token.startsWith("**") || token.startsWith("__")) {
+        node = document.createElement("strong");
+        appendInline(node, token.slice(2, -2));
+      } else if (token.startsWith("~~")) {
+        node = document.createElement("del");
+        appendInline(node, token.slice(2, -2));
+      } else if (token.startsWith("*") || token.startsWith("_")) {
+        node = document.createElement("em");
+        appendInline(node, token.slice(1, -1));
+      } else if (token.startsWith("`")) {
+        node = document.createElement("code");
+        node.textContent = token.slice(1, -1);
+      } else {
+        const linkMatch = token.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+        node = document.createElement("a");
+        node.textContent = linkMatch[1];
+        node.href = linkMatch[2];
+        node.target = "_blank";
+        node.rel = "noopener noreferrer";
+      }
+      parent.append(node);
+      cursor = pattern.lastIndex;
+    }
+    if (cursor < source.length) parent.append(document.createTextNode(source.slice(cursor)));
+  }
+
+  function isTableRow(line) {
+    return line.includes("|") && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+  }
+
+  function splitTableRow(line) {
+    return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(cell => cell.trim());
+  }
+
+  function renderMarkdown(container, rawSource) {
+    const source = normaliseMarkdown(rawSource).replace(/\r\n?/g, "\n");
+    const lines = source.split("\n");
+    let i = 0;
+
+    function addParagraph(paragraphLines) {
+      const p = document.createElement("p");
+      appendInline(p, paragraphLines.join(" ").trim());
+      container.append(p);
+    }
+
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) { i++; continue; }
+
+      if (/^\s*```/.test(line)) {
+        const language = line.trim().slice(3).trim();
+        const codeLines = [];
+        i++;
+        while (i < lines.length && !/^\s*```/.test(lines[i])) codeLines.push(lines[i++]);
+        if (i < lines.length) i++;
+        const pre = document.createElement("pre");
+        const code = document.createElement("code");
+        if (language) code.dataset.language = language;
+        code.textContent = codeLines.join("\n");
+        pre.append(code);
+        container.append(pre);
+        continue;
+      }
+
+      const heading = line.match(/^\s*(#{1,4})\s+(.+?)\s*#*\s*$/);
+      if (heading) {
+        const h = document.createElement(`h${heading[1].length}`);
+        appendInline(h, heading[2]);
+        container.append(h);
+        i++;
+        continue;
+      }
+
+      if (/^\s*(---+|\*\*\*+|___+)\s*$/.test(line)) {
+        container.append(document.createElement("hr"));
+        i++;
+        continue;
+      }
+
+      if (i + 1 < lines.length && line.includes("|") && isTableRow(lines[i + 1])) {
+        const headers = splitTableRow(line);
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const headerRow = document.createElement("tr");
+        headers.forEach(value => { const th = document.createElement("th"); appendInline(th, value); headerRow.append(th); });
+        thead.append(headerRow);
+        table.append(thead);
+        i += 2;
+        const tbody = document.createElement("tbody");
+        while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
+          const cells = splitTableRow(lines[i]);
+          const row = document.createElement("tr");
+          headers.forEach((_, index) => { const td = document.createElement("td"); appendInline(td, cells[index] || ""); row.append(td); });
+          tbody.append(row);
+          i++;
+        }
+        table.append(tbody);
+        const wrap = document.createElement("div");
+        wrap.className = "message-table-wrap";
+        wrap.append(table);
+        container.append(wrap);
+        continue;
+      }
+
+      const listMatch = line.match(/^\s*([-*+]\s+|\d+[.)]\s+)/);
+      if (listMatch) {
+        const ordered = /^\d/.test(listMatch[1]);
+        const list = document.createElement(ordered ? "ol" : "ul");
+        while (i < lines.length) {
+          const itemMatch = lines[i].match(/^\s*([-*+]\s+|\d+[.)]\s+)(.*)$/);
+          if (!itemMatch || /^\d/.test(itemMatch[1]) !== ordered) break;
+          const li = document.createElement("li");
+          appendInline(li, itemMatch[2]);
+          list.append(li);
+          i++;
+        }
+        container.append(list);
+        continue;
+      }
+
+      if (/^\s*&gt;|^\s*>/.test(line)) {
+        const quoteLines = [];
+        while (i < lines.length && /^\s*>/.test(lines[i])) quoteLines.push(lines[i++].replace(/^\s*>\s?/, ""));
+        const quote = document.createElement("blockquote");
+        appendInline(quote, quoteLines.join(" "));
+        container.append(quote);
+        continue;
+      }
+
+      const paragraphLines = [line.trim()];
+      i++;
+      while (i < lines.length && lines[i].trim() && !/^\s*(```|#{1,4}\s|[-*+]\s+|\d+[.)]\s+|>|---+\s*$)/.test(lines[i])) {
+        if (i + 1 < lines.length && lines[i].includes("|") && isTableRow(lines[i + 1])) break;
+        paragraphLines.push(lines[i].trim());
+        i++;
+      }
+      addParagraph(paragraphLines);
+    }
+  }
+
   function makeMessage(role, content, thinking = "", toolsUsed = []) {
     const row = document.createElement("article");
     row.className = `chat-message ${role}`;
@@ -143,7 +316,11 @@
 
     const text = document.createElement("div");
     text.className = "message-content";
-    text.textContent = content;
+    if (role === "assistant") {
+      renderMarkdown(text, content);
+    } else {
+      text.textContent = content;
+    }
 
     body.append(label, text);
 
