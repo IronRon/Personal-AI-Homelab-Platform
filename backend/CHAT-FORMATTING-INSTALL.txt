@@ -1,0 +1,31 @@
+Assistant chat formatting patch
+================================
+
+This patch changes only:
+  templates/assistant/chat.html
+
+It preserves the existing collapsible thinking text, separate reasoning panel,
+Food data accessed indicator, quick prompts, and chat API. It adds safe
+Markdown rendering for assistant messages (headings, bold/italic/strikethrough,
+inline and fenced code, lists, tables, blockquotes, horizontal rules, and
+HTTP(S) links). User messages continue to render as plain text.
+
+Install
+-------
+1. Stop the Django development server with Ctrl+C.
+2. Extract this ZIP into the backend folder, preserving folder paths and
+   allowing the existing chat.html to be overwritten.
+3. Run from backend:
+
+   python manage.py check
+   python manage.py test apps.assistant
+   python manage.py test
+
+4. Restart:
+
+   python manage.py runserver
+
+5. Open http://127.0.0.1:8000/assistant/ and test responses containing bold
+   text, bullet lists, and Markdown tables.
+
+No database migration or new Python package is required.

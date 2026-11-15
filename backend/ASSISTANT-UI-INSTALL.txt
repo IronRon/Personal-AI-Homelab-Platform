@@ -1,0 +1,29 @@
+AI Assistant Chat UI - installation notes
+
+This archive contains only the files added or changed for the first AI Assistant UI milestone.
+Extract the archive into your existing Django backend folder (the folder containing manage.py),
+allowing files to be overwritten.
+
+The archive does not contain your .env file, virtual environment, database, or Git history.
+
+After extracting, from the backend folder run:
+
+    python manage.py check
+    python manage.py test apps.assistant
+    python manage.py test
+    python manage.py runserver
+
+Open http://127.0.0.1:8000/assistant/
+
+Requirements:
+- Django environment already configured as in the existing project.
+- python-dotenv installed, because the current settings.py loads the project-root .env.
+- Ollama running locally at the configured OLLAMA_BASE_URL.
+- qwen3.5:4b available in Ollama (or change OLLAMA_MODEL in .env).
+
+The chat keeps the latest 40 messages in the current Django browser session.
+This is session-level conversation history, not a permanent conversation archive.
+The "Model reasoning" panel displays the optional `thinking` text returned by Ollama.
+It may be absent or incomplete and should not be treated as a complete record of the model's internal process.
+
+Food-module reads/writes and tool execution are intentionally not included in this milestone.

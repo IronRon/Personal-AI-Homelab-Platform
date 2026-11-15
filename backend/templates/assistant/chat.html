@@ -1,0 +1,637 @@
+{% extends 'base.html' %}
+
+{% block title %}AI Assistant | Personal AI Homelab Platform{% endblock %}
+
+{% block content %}
+<style>
+  .assistant-page { max-width: 1240px; margin: 0 auto; }
+  .assistant-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:1.25rem; }
+  .assistant-heading h1 { margin:0 0 .4rem; font-size:clamp(1.7rem,4vw,2.4rem); }
+  .assistant-heading p { margin:0; color:var(--muted); line-height:1.5; }
+  .assistant-status { display:inline-flex; align-items:center; gap:.5rem; color:#bbf7d0; font-size:.82rem; white-space:nowrap; }
+  .status-dot { width:8px; height:8px; border-radius:50%; background:#22c55e; box-shadow:0 0 10px #22c55e88; }
+  .assistant-layout { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:1rem; align-items:start; }
+  .chat-panel,.reasoning-panel { border:1px solid var(--border); border-radius:16px; background:rgba(15,23,42,.72); overflow:hidden; }
+  .chat-toolbar { display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.9rem 1rem; border-bottom:1px solid var(--border); }
+  .model-label { color:var(--muted); font-size:.82rem; }
+  .model-label strong { color:var(--text); }
+  .chat-log { min-height:420px; max-height:62vh; overflow-y:auto; padding:1.2rem; display:flex; flex-direction:column; gap:1rem; }
+  .welcome { margin:auto; max-width:620px; text-align:center; padding:2rem 1rem; }
+  .welcome-mark { display:grid; place-items:center; width:54px; height:54px; border-radius:16px; margin:0 auto 1rem; background:rgba(56,189,248,.14); color:#7dd3fc; font-size:1.5rem; }
+  .welcome h2 { margin:.2rem 0 .6rem; }
+  .welcome p { color:var(--muted); line-height:1.6; }
+  .chat-message { display:flex; gap:.7rem; max-width:92%; align-items:flex-start; }
+  .chat-message.user { align-self:flex-end; flex-direction:row-reverse; }
+  .avatar { flex:0 0 32px; width:32px; height:32px; display:grid; place-items:center; border-radius:10px; background:#1e293b; color:#bae6fd; font-size:.78rem; font-weight:700; }
+  .chat-message.user .avatar { background:#075985; color:#e0f2fe; }
+  .message-body { min-width:0; }
+  .message-role { color:var(--muted); font-size:.72rem; margin:0 0 .3rem .1rem; }
+  .message-content { overflow-wrap:anywhere; line-height:1.65; border:1px solid var(--border); border-radius:4px 14px 14px 14px; padding:.8rem 1rem; background:rgba(30,41,59,.8); }
+  .message-content > :first-child { margin-top:0; }
+  .message-content > :last-child { margin-bottom:0; }
+  .message-content p { margin:.45rem 0 .8rem; }
+  .message-content h1,.message-content h2,.message-content h3,.message-content h4 { line-height:1.3; margin:1rem 0 .5rem; }
+  .message-content h1 { font-size:1.25rem; }
+  .message-content h2 { font-size:1.12rem; }
+  .message-content h3,.message-content h4 { font-size:1rem; }
+  .message-content ul,.message-content ol { margin:.45rem 0 .85rem; padding-left:1.5rem; }
+  .message-content li { margin:.2rem 0; }
+  .message-content blockquote { margin:.7rem 0; padding:.25rem .8rem; border-left:3px solid var(--accent); color:var(--muted); background:rgba(2,6,23,.2); }
+  .message-content pre { overflow-x:auto; white-space:pre; padding:.8rem; border-radius:9px; background:rgba(2,6,23,.7); font:.82rem/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; }
+  .message-content code { padding:.12rem .3rem; border-radius:5px; background:rgba(2,6,23,.45); font:.88em ui-monospace,SFMono-Regular,Consolas,monospace; }
+  .message-content pre code { padding:0; background:transparent; }
+  .message-table-wrap { max-width:100%; overflow-x:auto; margin:.7rem 0; }
+  .message-content table { border-collapse:collapse; width:100%; min-width:300px; font-size:.9rem; }
+  .message-content th,.message-content td { padding:.5rem .65rem; border:1px solid var(--border); text-align:left; vertical-align:top; }
+  .message-content th { background:rgba(2,6,23,.35); }
+  .message-content hr { border:0; border-top:1px solid var(--border); margin:.9rem 0; }
+  .message-content a { color:#7dd3fc; text-decoration:underline; text-underline-offset:2px; }
+  .chat-message.user .message-content { background:rgba(3,105,161,.24); border-color:rgba(56,189,248,.25); border-radius:14px 4px 14px 14px; }
+  .message-thinking { margin-top:.55rem; }
+  .message-thinking summary { color:#7dd3fc; cursor:pointer; font-size:.78rem; }
+  .message-thinking pre { white-space:pre-wrap; overflow-wrap:anywhere; color:#cbd5e1; font: .78rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; background:rgba(2,6,23,.55); padding:.8rem; border-radius:10px; max-height:260px; overflow:auto; }
+  .quick-prompts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem; padding:0 1rem 1rem; }
+  .quick-prompt { text-align:left; padding:.7rem .8rem; border:1px solid var(--border); border-radius:10px; background:rgba(30,41,59,.55); color:var(--text); cursor:pointer; font:inherit; font-size:.82rem; line-height:1.35; }
+  .quick-prompt:hover { border-color:rgba(56,189,248,.6); background:rgba(56,189,248,.09); }
+  .composer { border-top:1px solid var(--border); padding:1rem; }
+  .composer form { display:flex; align-items:flex-end; gap:.7rem; }
+  .composer textarea { flex:1; min-height:48px; max-height:160px; resize:vertical; border:1px solid rgba(148,163,184,.35); border-radius:12px; padding:.8rem .9rem; color:var(--text); background:#0b1220; font:inherit; }
+  .composer textarea:focus { outline:2px solid rgba(56,189,248,.45); border-color:#38bdf8; }
+  .send-button { border:0; border-radius:10px; padding:.8rem 1.1rem; background:var(--accent); color:#082f49; font-weight:700; cursor:pointer; min-height:46px; }
+  .send-button:disabled,.quick-prompt:disabled { opacity:.5; cursor:not-allowed; }
+  .composer-note { color:var(--muted); font-size:.72rem; margin:.55rem 0 0; }
+  .error-banner { margin:0 1rem 1rem; padding:.75rem .9rem; border:1px solid rgba(248,113,113,.4); border-radius:10px; color:#fecaca; background:rgba(127,29,29,.2); }
+  .reasoning-panel { position:sticky; top:88px; }
+  .reasoning-header { padding:1rem; border-bottom:1px solid var(--border); }
+  .reasoning-header h2 { font-size:1rem; margin:0 0 .35rem; }
+  .reasoning-header p,.reasoning-content p { color:var(--muted); font-size:.8rem; line-height:1.5; margin:0; }
+  .reasoning-content { padding:1rem; }
+  .reasoning-content pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:55vh; overflow:auto; font:.76rem/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; color:#cbd5e1; }
+  .reasoning-empty { padding:1rem; border:1px dashed var(--border); border-radius:10px; color:var(--muted); font-size:.82rem; line-height:1.5; }
+  .subtle-button { border:1px solid var(--border); background:transparent; color:var(--text); border-radius:9px; padding:.5rem .7rem; cursor:pointer; font:inherit; font-size:.78rem; }
+  .subtle-button:hover { border-color:var(--accent); }
+  .assistant-settings { border-bottom:1px solid var(--border); padding:.8rem 1rem; }
+  .assistant-settings summary { cursor:pointer; font-weight:650; }
+  .settings-body { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; padding-top:1rem; }
+  .settings-group { border:1px solid var(--border); border-radius:10px; padding:.8rem; min-width:0; }
+  .settings-group h3 { font-size:.9rem; margin:0 0 .6rem; }
+  .settings-group p { color:var(--muted); font-size:.76rem; line-height:1.45; margin:.2rem 0 .65rem; }
+  .setting-row { display:flex; align-items:flex-start; gap:.5rem; margin:.48rem 0; font-size:.8rem; overflow-wrap:anywhere; }
+  .setting-row input { margin-top:.18rem; accent-color:var(--accent); }
+  .settings-actions { grid-column:1/-1; display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; }
+  .settings-status { color:var(--muted); font-size:.76rem; }
+  .pending-action { margin-top:.7rem; padding:.8rem; border:1px solid rgba(245,158,11,.5); border-radius:10px; background:rgba(120,53,15,.16); }
+  .pending-action h3 { margin:0 0 .45rem; font-size:.9rem; }
+  .pending-action pre { max-height:220px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font-size:.76rem; }
+  .pending-action-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+  .confirm-button { border:0; border-radius:8px; padding:.55rem .8rem; background:#16a34a; color:#fff; font-weight:700; cursor:pointer; }
+  .cancel-button { border:1px solid var(--border); border-radius:8px; padding:.55rem .8rem; background:transparent; color:var(--text); cursor:pointer; }
+  @media(max-width:560px) { .settings-body { grid-template-columns:1fr; } }
+  .typing { color:var(--muted); font-size:.82rem; padding:.3rem .2rem; }
+  @media(max-width:850px) { .assistant-layout { grid-template-columns:1fr; } .reasoning-panel { position:static; } .reasoning-content pre { max-height:260px; } }
+  @media(max-width:560px) { .assistant-heading { flex-direction:column; } .assistant-status { white-space:normal; } .chat-log { min-height:340px; padding:.9rem; } .quick-prompts { grid-template-columns:1fr; } .chat-message { max-width:100%; } .composer form { align-items:stretch; flex-direction:column; } .send-button { width:100%; } }
+</style>
+
+<section class="assistant-page">
+  <div class="assistant-heading">
+    <div>
+      <h1>AI Assistant</h1>
+      <p>A private chat interface powered by the Ollama model running on this PC.</p>
+    </div>
+    <div class="assistant-status"><span class="status-dot"></span> Local model · {{ ollama_model }}</div>
+  </div>
+
+  <div class="assistant-layout">
+    <section class="chat-panel" aria-label="Chat with local AI">
+      <div class="chat-toolbar">
+        <div class="model-label">Model <strong>{{ ollama_model }}</strong></div>
+        <button class="subtle-button" type="button" id="new-chat-button">＋ New conversation</button>
+      </div>
+      <details class="assistant-settings" id="assistant-settings">
+        <summary>⚙ Assistant settings · Read and write permissions</summary>
+        <div class="settings-body">
+          <section class="settings-group">
+            <h3>Read access</h3>
+            <p>Allow the assistant to inspect your Food records. You can control each read function separately.</p>
+            <label class="setting-row"><input type="checkbox" id="read-enabled" {% if assistant_permissions.read_enabled %}checked{% endif %}> Enable Food read access</label>
+            <div id="read-tool-options">
+              {% for tool in read_tool_names %}
+              <label class="setting-row"><input type="checkbox" class="read-tool" value="{{ tool }}" {% if tool in assistant_permissions.read_tools %}checked{% endif %}> <code>{{ tool }}</code></label>
+              {% endfor %}
+            </div>
+          </section>
+          <section class="settings-group">
+            <h3>Write access</h3>
+            <p>Disabled by default. When enabled, selected functions can prepare changes. Every change still requires your separate confirmation.</p>
+            <label class="setting-row"><input type="checkbox" id="write-enabled" {% if assistant_permissions.write_enabled %}checked{% endif %}> Enable Food write access</label>
+            <div id="write-tool-options">
+              {% for tool in write_tool_names %}
+              <label class="setting-row"><input type="checkbox" class="write-tool" value="{{ tool }}" {% if tool in assistant_permissions.write_tools %}checked{% endif %}> <code>{{ tool }}</code></label>
+              {% endfor %}
+            </div>
+          </section>
+          <div class="settings-actions">
+            <button class="subtle-button" type="button" id="save-settings-button">Save settings</button>
+            <span class="settings-status" id="settings-status">Settings apply to this browser session.</span>
+          </div>
+        </div>
+      </details>
+
+      <div class="chat-log" id="chat-log" aria-live="polite">
+        <div class="welcome" id="welcome">
+          <div class="welcome-mark">✦</div>
+          <h2>What would you like to work on?</h2>
+          <p>Ask a question, explore an idea, or use one of the prompts below. This chat remembers the recent messages in this browser session.</p>
+        </div>
+      </div>
+
+      <div class="quick-prompts" id="quick-prompts">
+        <button class="quick-prompt" type="button" data-prompt="How many calories and grams of protein have I logged today?">◉ Today's calories and protein</button>
+        <button class="quick-prompt" type="button" data-prompt="Show me my food consumption entries from the last 7 days.">▤ Recent food history</button>
+        <button class="quick-prompt" type="button" data-prompt="Search my food catalogue for chicken.">⌕ Search food catalogue</button>
+        <button class="quick-prompt" type="button" data-prompt="Show me my recent meal-prep batches and their nutrition information.">▦ Recent meal prep</button>
+      </div>
+
+      <div id="error-banner" class="error-banner" role="alert" hidden></div>
+
+      <div class="composer">
+        <form id="chat-form">
+          {% csrf_token %}
+          <textarea id="chat-input" name="message" placeholder="Message your local assistant..." rows="2" maxlength="8000" required></textarea>
+          <button class="send-button" id="send-button" type="submit">Send ↑</button>
+        </form>
+        <p class="composer-note">Enter to send · Shift + Enter for a new line · Voice input can be added later</p>
+      </div>
+    </section>
+
+    <aside class="reasoning-panel" aria-label="Model reasoning panel">
+      <div class="reasoning-header">
+        <h2>Model reasoning</h2>
+        <p>Optional thinking text returned by Ollama for the latest response.</p>
+      </div>
+      <div class="reasoning-content" id="reasoning-content">
+        <div class="reasoning-empty">The model's optional thinking output will appear here after a response. It may be empty or incomplete.</div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+{{ chat_messages|json_script:"initial-chat-messages" }}
+{{ pending_action|json_script:"pending-action-data" }}
+
+<script>
+(() => {
+  const chatLog = document.getElementById("chat-log");
+  const input = document.getElementById("chat-input");
+  const form = document.getElementById("chat-form");
+  const sendButton = document.getElementById("send-button");
+  const newChatButton = document.getElementById("new-chat-button");
+  const quickPrompts = document.getElementById("quick-prompts");
+  const errorBanner = document.getElementById("error-banner");
+  const reasoningContent = document.getElementById("reasoning-content");
+  const readEnabled = document.getElementById("read-enabled");
+  const writeEnabled = document.getElementById("write-enabled");
+  const saveSettingsButton = document.getElementById("save-settings-button");
+  const settingsStatus = document.getElementById("settings-status");
+  let pendingAction = null;
+  const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]").value;
+  let isSending = false;
+
+  // A deliberately small, safe Markdown renderer. It builds DOM nodes and never
+  // treats model output as HTML, so scripts or HTML in a response stay as text.
+  function normaliseMarkdown(source) {
+    return String(source || "")
+      .replace(/\\<br\s*\/?\s*>/gi, "<br>")
+      .replace(/\\([\\`*_{}\[\]()#+.!|>~-])/g, "$1");
+  }
+
+  function appendInline(parent, source) {
+    const pattern = /(<br\s*\/?\s*>|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*\n]+\*|_[^_\n]+_|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/gi;
+    let cursor = 0;
+    let match;
+    while ((match = pattern.exec(source)) !== null) {
+      if (match.index > cursor) parent.append(document.createTextNode(source.slice(cursor, match.index)));
+      const token = match[0];
+      let node;
+      if (/^<br\s*\/?\s*>$/i.test(token)) {
+        node = document.createElement("br");
+      } else if (token.startsWith("**") || token.startsWith("__")) {
+        node = document.createElement("strong");
+        appendInline(node, token.slice(2, -2));
+      } else if (token.startsWith("~~")) {
+        node = document.createElement("del");
+        appendInline(node, token.slice(2, -2));
+      } else if (token.startsWith("*") || token.startsWith("_")) {
+        node = document.createElement("em");
+        appendInline(node, token.slice(1, -1));
+      } else if (token.startsWith("`")) {
+        node = document.createElement("code");
+        node.textContent = token.slice(1, -1);
+      } else {
+        const linkMatch = token.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+        node = document.createElement("a");
+        node.textContent = linkMatch[1];
+        node.href = linkMatch[2];
+        node.target = "_blank";
+        node.rel = "noopener noreferrer";
+      }
+      parent.append(node);
+      cursor = pattern.lastIndex;
+    }
+    if (cursor < source.length) parent.append(document.createTextNode(source.slice(cursor)));
+  }
+
+  function isTableRow(line) {
+    return line.includes("|") && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+  }
+
+  function splitTableRow(line) {
+    return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(cell => cell.trim());
+  }
+
+  function renderMarkdown(container, rawSource) {
+    const source = normaliseMarkdown(rawSource).replace(/\r\n?/g, "\n");
+    const lines = source.split("\n");
+    let i = 0;
+
+    function addParagraph(paragraphLines) {
+      const p = document.createElement("p");
+      appendInline(p, paragraphLines.join(" ").trim());
+      container.append(p);
+    }
+
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) { i++; continue; }
+
+      if (/^\s*```/.test(line)) {
+        const language = line.trim().slice(3).trim();
+        const codeLines = [];
+        i++;
+        while (i < lines.length && !/^\s*```/.test(lines[i])) codeLines.push(lines[i++]);
+        if (i < lines.length) i++;
+        const pre = document.createElement("pre");
+        const code = document.createElement("code");
+        if (language) code.dataset.language = language;
+        code.textContent = codeLines.join("\n");
+        pre.append(code);
+        container.append(pre);
+        continue;
+      }
+
+      const heading = line.match(/^\s*(#{1,4})\s+(.+?)\s*#*\s*$/);
+      if (heading) {
+        const h = document.createElement(`h${heading[1].length}`);
+        appendInline(h, heading[2]);
+        container.append(h);
+        i++;
+        continue;
+      }
+
+      if (/^\s*(---+|\*\*\*+|___+)\s*$/.test(line)) {
+        container.append(document.createElement("hr"));
+        i++;
+        continue;
+      }
+
+      if (i + 1 < lines.length && line.includes("|") && isTableRow(lines[i + 1])) {
+        const headers = splitTableRow(line);
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const headerRow = document.createElement("tr");
+        headers.forEach(value => { const th = document.createElement("th"); appendInline(th, value); headerRow.append(th); });
+        thead.append(headerRow);
+        table.append(thead);
+        i += 2;
+        const tbody = document.createElement("tbody");
+        while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
+          const cells = splitTableRow(lines[i]);
+          const row = document.createElement("tr");
+          headers.forEach((_, index) => { const td = document.createElement("td"); appendInline(td, cells[index] || ""); row.append(td); });
+          tbody.append(row);
+          i++;
+        }
+        table.append(tbody);
+        const wrap = document.createElement("div");
+        wrap.className = "message-table-wrap";
+        wrap.append(table);
+        container.append(wrap);
+        continue;
+      }
+
+      const listMatch = line.match(/^\s*([-*+]\s+|\d+[.)]\s+)/);
+      if (listMatch) {
+        const ordered = /^\d/.test(listMatch[1]);
+        const list = document.createElement(ordered ? "ol" : "ul");
+        while (i < lines.length) {
+          const itemMatch = lines[i].match(/^\s*([-*+]\s+|\d+[.)]\s+)(.*)$/);
+          if (!itemMatch || /^\d/.test(itemMatch[1]) !== ordered) break;
+          const li = document.createElement("li");
+          appendInline(li, itemMatch[2]);
+          list.append(li);
+          i++;
+        }
+        container.append(list);
+        continue;
+      }
+
+      if (/^\s*&gt;|^\s*>/.test(line)) {
+        const quoteLines = [];
+        while (i < lines.length && /^\s*>/.test(lines[i])) quoteLines.push(lines[i++].replace(/^\s*>\s?/, ""));
+        const quote = document.createElement("blockquote");
+        appendInline(quote, quoteLines.join(" "));
+        container.append(quote);
+        continue;
+      }
+
+      const paragraphLines = [line.trim()];
+      i++;
+      while (i < lines.length && lines[i].trim() && !/^\s*(```|#{1,4}\s|[-*+]\s+|\d+[.)]\s+|>|---+\s*$)/.test(lines[i])) {
+        if (i + 1 < lines.length && lines[i].includes("|") && isTableRow(lines[i + 1])) break;
+        paragraphLines.push(lines[i].trim());
+        i++;
+      }
+      addParagraph(paragraphLines);
+    }
+  }
+
+  function makeMessage(role, content, thinking = "", toolsUsed = []) {
+    const row = document.createElement("article");
+    row.className = `chat-message ${role}`;
+
+    const avatar = document.createElement("div");
+    avatar.className = "avatar";
+    avatar.textContent = role === "user" ? "You" : "AI";
+
+    const body = document.createElement("div");
+    body.className = "message-body";
+
+    const label = document.createElement("div");
+    label.className = "message-role";
+    label.textContent = role === "user" ? "You" : "Assistant";
+
+    const text = document.createElement("div");
+    text.className = "message-content";
+    if (role === "assistant") {
+      renderMarkdown(text, content);
+    } else {
+      text.textContent = content;
+    }
+
+    body.append(label, text);
+
+    if (role === "assistant" && Array.isArray(toolsUsed) && toolsUsed.length) {
+      const toolNote = document.createElement("div");
+      toolNote.className = "message-role";
+      const hasWriteFunction = toolsUsed.some(name => /^(create|update|delete|log)_/.test(name));
+      toolNote.textContent = hasWriteFunction ? `Food write function used: ${toolsUsed.join(", ")}` : `Food data accessed: ${toolsUsed.join(", ")}`;
+      body.append(toolNote);
+    }
+
+    if (role === "assistant" && thinking) {
+      const details = document.createElement("details");
+      details.className = "message-thinking";
+      const summary = document.createElement("summary");
+      summary.textContent = "View thinking text";
+      const pre = document.createElement("pre");
+      pre.textContent = thinking;
+      details.append(summary, pre);
+      body.append(details);
+    }
+
+    row.append(avatar, body);
+    return row;
+  }
+
+  function setSettingsEnabledState() {
+    document.querySelectorAll(".read-tool").forEach(control => { control.disabled = !readEnabled.checked; });
+    document.querySelectorAll(".write-tool").forEach(control => { control.disabled = !writeEnabled.checked; });
+  }
+
+  async function saveSettings() {
+    saveSettingsButton.disabled = true;
+    settingsStatus.textContent = "Saving…";
+    const payload = {
+      read_enabled: readEnabled.checked,
+      write_enabled: writeEnabled.checked,
+      read_tools: [...document.querySelectorAll(".read-tool:checked")].map(control => control.value),
+      write_tools: [...document.querySelectorAll(".write-tool:checked")].map(control => control.value)
+    };
+    try {
+      const response = await fetch("{% url 'assistant_settings_api' %}", {
+        method: "POST", headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+        credentials: "same-origin", body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save settings.");
+      settingsStatus.textContent = "Saved for this browser session.";
+      setSettingsEnabledState();
+    } catch (error) {
+      settingsStatus.textContent = error.message;
+    } finally {
+      saveSettingsButton.disabled = false;
+    }
+  }
+
+  function makePendingActionCard(action) {
+    const card = document.createElement("section");
+    card.className = "pending-action";
+    card.dataset.pendingAction = "true";
+    const heading = document.createElement("h3");
+    heading.textContent = "Review proposed Food change";
+    const note = document.createElement("p");
+    note.textContent = `Function: ${action.name}. Nothing has been changed yet.`;
+    const preview = document.createElement("pre");
+    preview.textContent = JSON.stringify(action.preview || action.arguments || {}, null, 2);
+    const actions = document.createElement("div");
+    actions.className = "pending-action-actions";
+    const confirm = document.createElement("button");
+    confirm.type = "button"; confirm.className = "confirm-button"; confirm.textContent = "Confirm and apply";
+    confirm.addEventListener("click", confirmPendingAction);
+    const cancel = document.createElement("button");
+    cancel.type = "button"; cancel.className = "cancel-button"; cancel.textContent = "Cancel";
+    cancel.addEventListener("click", cancelPendingAction);
+    actions.append(confirm, cancel);
+    card.append(heading, note, preview, actions);
+    return card;
+  }
+
+  function showPendingAction(action) {
+    pendingAction = action || null;
+    const old = chatLog.querySelector("[data-pending-action]");
+    if (old) old.remove();
+    if (pendingAction) {
+      const lastAssistant = [...chatLog.querySelectorAll(".chat-message.assistant")].at(-1);
+      if (lastAssistant) lastAssistant.querySelector(".message-body").append(makePendingActionCard(pendingAction));
+    }
+    input.disabled = Boolean(pendingAction);
+    sendButton.disabled = Boolean(pendingAction);
+    quickPrompts.querySelectorAll("button").forEach(button => { button.disabled = Boolean(pendingAction); });
+  }
+
+  async function confirmPendingAction() {
+    const card = chatLog.querySelector("[data-pending-action]");
+    const button = card && card.querySelector(".confirm-button");
+    if (button) button.disabled = true;
+    try {
+      const response = await fetch("{% url 'assistant_confirm_food_action' %}", {method:"POST", headers:{"X-CSRFToken":csrfToken}, credentials:"same-origin"});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "The change could not be completed.");
+      if (card) card.remove();
+      pendingAction = null;
+      input.disabled = false; sendButton.disabled = false;
+      renderMessage(data.message);
+    } catch (error) {
+      if (button) button.disabled = false;
+      errorBanner.textContent = error.message; errorBanner.hidden = false;
+    }
+  }
+
+  async function cancelPendingAction() {
+    try {
+      const response = await fetch("{% url 'assistant_cancel_food_action' %}", {method:"POST", headers:{"X-CSRFToken":csrfToken}, credentials:"same-origin"});
+      if (!response.ok) throw new Error("Could not cancel the proposed change.");
+      showPendingAction(null);
+    } catch (error) {
+      errorBanner.textContent = error.message; errorBanner.hidden = false;
+    }
+  }
+
+  function showWelcomeIfEmpty() {
+    if (!chatLog.querySelector(".chat-message") && !document.getElementById("welcome")) {
+      const welcome = document.createElement("div");
+      welcome.className = "welcome";
+      welcome.id = "welcome";
+      welcome.innerHTML = '<div class="welcome-mark">✦</div><h2>What would you like to work on?</h2><p>Ask a question, explore an idea, or use one of the prompts below. This chat remembers the recent messages in this browser session.</p>';
+      chatLog.append(welcome);
+    }
+  }
+
+  function renderMessage(message) {
+    const welcome = document.getElementById("welcome");
+    if (welcome) welcome.remove();
+    chatLog.append(makeMessage(message.role, message.content, message.thinking || "", message.tools_used || []));
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  function showReasoning(thinking) {
+    reasoningContent.replaceChildren();
+    if (!thinking) {
+      const empty = document.createElement("div");
+      empty.className = "reasoning-empty";
+      empty.textContent = "No thinking text was returned for this response.";
+      reasoningContent.append(empty);
+      return;
+    }
+    const pre = document.createElement("pre");
+    pre.textContent = thinking;
+    reasoningContent.append(pre);
+  }
+
+  async function sendMessage(message) {
+    if (isSending || pendingAction || !message.trim()) return;
+    isSending = true;
+    errorBanner.hidden = true;
+    sendButton.disabled = true;
+    newChatButton.disabled = true;
+    quickPrompts.querySelectorAll("button").forEach(button => button.disabled = true);
+    const welcome = document.getElementById("welcome");
+    if (welcome) welcome.remove();
+    renderMessage({role: "user", content: message});
+    const typing = document.createElement("div");
+    typing.className = "typing";
+    typing.textContent = "The local model is thinking…";
+    chatLog.append(typing);
+    chatLog.scrollTop = chatLog.scrollHeight;
+
+    try {
+      const response = await fetch("{% url 'assistant_chat_api' %}", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfToken
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({message})
+      });
+      const data = await response.json();
+      typing.remove();
+      if (!response.ok) throw new Error(data.error || "The request failed.");
+      renderMessage({role: "assistant", content: data.answer, thinking: data.thinking, tools_used: data.tools_used || []});
+      showPendingAction(data.pending_action);
+      showReasoning(data.thinking);
+      input.value = "";
+    } catch (error) {
+      typing.remove();
+      errorBanner.textContent = error.message || "Something went wrong.";
+      errorBanner.hidden = false;
+    } finally {
+      isSending = false;
+      sendButton.disabled = Boolean(pendingAction);
+      input.disabled = Boolean(pendingAction);
+      newChatButton.disabled = false;
+      quickPrompts.querySelectorAll("button").forEach(button => { button.disabled = Boolean(pendingAction); });
+      if (!pendingAction) input.focus();
+      showWelcomeIfEmpty();
+    }
+  }
+
+  readEnabled.addEventListener("change", setSettingsEnabledState);
+  writeEnabled.addEventListener("change", setSettingsEnabledState);
+  saveSettingsButton.addEventListener("click", saveSettings);
+  setSettingsEnabledState();
+
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    sendMessage(input.value);
+  });
+
+  input.addEventListener("keydown", event => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  quickPrompts.addEventListener("click", event => {
+    const button = event.target.closest("[data-prompt]");
+    if (button) sendMessage(button.dataset.prompt);
+  });
+
+  newChatButton.addEventListener("click", async () => {
+    if (isSending) return;
+    try {
+      const response = await fetch("{% url 'assistant_new_conversation' %}", {
+        method: "POST",
+        headers: {"X-CSRFToken": csrfToken},
+        credentials: "same-origin"
+      });
+      if (!response.ok) throw new Error("Could not start a new conversation.");
+      chatLog.replaceChildren();
+      pendingAction = null;
+      input.disabled = false; sendButton.disabled = false;
+      showWelcomeIfEmpty();
+      showReasoning("");
+      errorBanner.hidden = true;
+      input.value = "";
+      input.focus();
+    } catch (error) {
+      errorBanner.textContent = error.message;
+      errorBanner.hidden = false;
+    }
+  });
+
+  try {
+    const initial = JSON.parse(document.getElementById("initial-chat-messages").textContent);
+    pendingAction = JSON.parse(document.getElementById("pending-action-data").textContent);
+    initial.forEach(renderMessage);
+    const latestAssistant = [...initial].reverse().find(item => item.role === "assistant");
+    if (latestAssistant) showReasoning(latestAssistant.thinking || "");
+    showWelcomeIfEmpty();
+    if (pendingAction) showPendingAction(pendingAction);
+  } catch (_) {
+    showWelcomeIfEmpty();
+  }
+})();
+</script>
+{% endblock %}

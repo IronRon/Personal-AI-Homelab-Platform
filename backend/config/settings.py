@@ -11,16 +11,25 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+# Load environment variables from the project root .env file.
+load_dotenv(BASE_DIR.parent / ".env")
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-n-!@+y2x%&)*ffw5@-dr5xb@e+%o2bmui0+s=4mnv_6vcek#jo'
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
+
+if not SECRET_KEY:
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY is missing. Check your .env file."
+    )
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -39,6 +48,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'apps.core',
     'apps.food',
+    'apps.assistant',
 ]
 
 MIDDLEWARE = [
@@ -117,6 +127,27 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Local Ollama configuration
+
+OLLAMA_BASE_URL = os.environ.get(
+    'OLLAMA_BASE_URL',
+    'http://localhost:11434',
+)
+
+OLLAMA_MODEL = os.environ.get(
+    'OLLAMA_MODEL',
+    'qwen3.5:4b',
+)
+
+OLLAMA_TIMEOUT_SECONDS = int(
+    os.environ.get('OLLAMA_TIMEOUT_SECONDS', '120')
+)
+
+OLLAMA_THINK = os.environ.get(
+    'OLLAMA_THINK',
+    'true'
+).lower() in ('1', 'true', 'yes', 'on')
 
 
 # Email

@@ -1,0 +1,81 @@
+Assistant Settings + Controlled Food Write Access
+=================================================
+
+This patch builds on the existing Food read-only integration and the chat-formatting patch.
+It replaces the assistant chat template and updates the assistant backend. Extract the ZIP
+into the backend folder so the paths merge into the existing project.
+
+WHAT IT ADDS
+------------
+- Collapsible Assistant Settings panel.
+- Independent master switches for Food read access and Food write access.
+- Individual allow/deny switches for every exposed read and write function.
+- Settings stored in the current Django browser session (not a permanent user profile).
+- Write access OFF by default; read access ON by default.
+- Backend checks permissions before exposing tools to Ollama.
+- Write tool calls create a server-stored proposal, not an immediate database change.
+- A separate Confirm and apply button executes the exact validated proposal.
+- Cancel discards the pending proposal.
+- If write permission is switched off or the function is deselected before confirmation,
+  the backend refuses to execute the pending action.
+- Chat input and quick prompts are paused while a proposal is pending.
+
+INITIAL WRITE FUNCTIONS
+-----------------------
+- create_food_item: add an ingredient or product to the catalogue. Nutrition fields can
+  remain unknown; null is not converted to zero.
+- create_recipe: create a reusable recipe from existing catalogue items.
+- create_meal_prep_batch: create a batch from an existing recipe.
+- log_food_consumption: log a quantity of an existing catalogue item.
+- log_meal_prep_portion: log a portion from an existing meal-prep batch. The tool checks
+  the remaining batch quantity before logging.
+
+Editing and deleting existing records are deliberately NOT exposed in this first write
+release. They can be added later as separate, individually permissioned functions.
+
+INSTALL
+-------
+1. Stop the Django development server with Ctrl+C.
+2. Commit your current working changes first, or make a backup of the backend folder.
+3. From the repository root, extract the downloaded ZIP into .\backend:
+
+   Expand-Archive `
+       -LiteralPath "$env:USERPROFILE\Downloads\assistant-settings-write.zip" `
+       -DestinationPath ".\backend" `
+       -Force
+
+   Adjust the ZIP path if your browser saved it somewhere else.
+
+4. Run the checks from the backend folder:
+
+   cd .\backend
+   python manage.py check
+   python manage.py test apps.assistant
+   python manage.py test
+
+No database migration or new Python package is required.
+
+EXPECTED TEST COUNT
+-------------------
+The previous suite had 151 tests. This patch adds 11 tests, so the expected full-suite
+count is 162, assuming no other tests were added or removed in the meantime.
+
+MANUAL TESTING
+--------------
+1. Start the server and open /assistant/.
+2. Expand Assistant Settings. Confirm read access is enabled and write access is disabled.
+3. Enable write access and select ONLY create_food_item. Save settings.
+4. Ask: "Add a temporary test ingredient named Test Oats to my catalogue. Leave all
+   nutrition values unknown. Use grams as the nutrition basis."
+5. The assistant should show a proposal card. Verify the name, type, unit and unknown
+   nutrition fields. Nothing should be created until you press Confirm and apply.
+6. Confirm, then search the catalogue for Test Oats to verify it exists.
+7. Turn write access off. Ask the assistant to add another test item. It must explain that
+   the write function is disabled and must not create anything.
+8. Re-enable write access and test Cancel on a proposed action. Confirm that nothing is
+   created.
+9. Try one read tool with its individual checkbox disabled and verify the assistant cannot
+   access that function.
+
+Keep write access off when you are not actively testing it. The settings are scoped to
+this browser session and will return to safe defaults in a new session.

@@ -1,0 +1,45 @@
+READ-ONLY FOOD TOOL INTEGRATION
+
+This patch adds a validated, read-only Food tool-calling layer to the existing
+Django assistant. It does not add or change database models, so no migrations
+are required.
+
+INSTALL
+1. Stop the Django development server with Ctrl+C.
+2. From the project root, extract this ZIP into the backend folder, preserving
+   the folder structure. Example PowerShell command:
+
+   Expand-Archive -LiteralPath "$env:USERPROFILE\Downloads\assistant-food-tools.zip" -DestinationPath ".\backend" -Force
+
+3. From the backend folder, run:
+
+   python manage.py check
+   python manage.py test apps.assistant
+   python manage.py test
+
+4. Start Ollama if it is not already running, then start Django:
+
+   ollama list
+   python manage.py runserver
+
+5. Open http://127.0.0.1:8000/assistant/
+
+TRY THESE PROMPTS
+- How many calories and grams of protein have I logged today?
+- Show me my food consumption entries from the last 7 days.
+- Search my food catalogue for chicken.
+- Show me my recent meal-prep batches and their nutrition information.
+
+NOTES
+- The assistant can only use the five registered read-only Food tools.
+- No create, update, or delete tools are exposed.
+- Tool arguments are checked by Django; tool results are read from existing
+  Food models and service functions.
+- Unknown nutrition/cost values remain null and are not treated as zero.
+- Daily consumption cost is kept distinct from actual grocery purchases.
+- Tool execution is limited to four consecutive tool rounds per user turn.
+- No migration is required.
+
+If Ollama reports an error or the model answers without accessing Food data,
+check that the installed Ollama version/model supports tool calling. The UI
+will show the names of Food tools used when a tool call succeeds.
