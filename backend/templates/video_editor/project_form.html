@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+
+{% block title %}New Video Project | Personal AI Homelab Platform{% endblock %}
+
+{% block content %}
+  <section class="hero"><h1>New video project</h1><p>Set up a highlight project. You can change the clip selection and synchronisation later.</p></section>
+  <section class="video-panel video-form-panel">
+    <form method="post">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="video-form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{% for error in field.errors %}<small class="video-error">{{ error }}</small>{% endfor %}</div>
+      {% endfor %}
+      {% if form.non_field_errors %}<p class="video-error">{{ form.non_field_errors }}</p>{% endif %}
+      <div class="actions"><button class="button" type="submit">Create project</button><a class="button secondary" href="{% url 'video_project_list' %}">Cancel</a></div>
+    </form>
+  </section>
+{% endblock %}

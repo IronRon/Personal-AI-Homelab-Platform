@@ -25,8 +25,8 @@ def home(request):
         {
             'name': 'AI-assisted Video Editing',
             'description': 'Video planning, media processing, and automation.',
-            'link': '#',
-            'coming_soon': True,
+            'link': reverse('video_project_list'),
+            'coming_soon': False,
         },
         {
             'name': 'AI Assistant',

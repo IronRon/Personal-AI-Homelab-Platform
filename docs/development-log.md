@@ -1,5 +1,51 @@
 # Development Log
 
+### 2026-11-16 — Video Editor Milestone 1: Local Media and Basic Cutting
+**Area:** Video Editor / Media Processing
+
+**Summary:**
+Added the first deterministic Video Editor workflow to the existing Django modular monolith. This milestone deliberately does not use an LLM; media inspection and rendering are handled by FFprobe and FFmpeg.
+
+**Completed:**
+
+- Added the `apps.video_editor` Django app with project, media asset, clip, and background job models.
+- Added project creation and project dashboard pages, plus navigation from the platform home page.
+- Added a local inbox workflow. Supported recordings are copied into project storage, SHA-256 verified, and probed for duration, resolution, frame rate, and codecs. Original recordings are left untouched.
+- Added manual facecam synchronisation in milliseconds, with positive offsets meaning the facecam starts later than gameplay.
+- Added timestamp-based clip selection, inclusion/exclusion, and removal from the edit.
+- Added a database-backed render queue and `run_video_worker` management command so long FFmpeg operations do not run inside web requests.
+- Added FFmpeg rendering to 1920×1080 H.264/AAC MP4, normalising frame rate and audio; an imported facecam is overlaid in the lower-right corner.
+- Added focused tests for project routes, sync settings, clip validation, job enqueueing, and safe media import.
+
+**Technical decisions:**
+
+- Store large media files on disk and only metadata/relative paths in SQLite.
+- Copy source files into project storage; never edit or delete the originals.
+- Use a local inbox rather than browser uploads for large recordings.
+- Keep the first render workflow deterministic and independent of Ollama.
+- Use a single polling worker initially; defer Celery/Redis and a shared job framework until there is a demonstrated need.
+
+**Known issues / deferred work:**
+
+- The current UI selects clips by entering timestamps; playback preview, waveform/timeline editing, drag-to-reorder, and automatic refresh are not included.
+- The current renderer uses a fixed 1920×1080, 30 FPS output and a fixed facecam overlay position/size.
+- The worker is intended to run as one local process; recovery of jobs left in `running` after a forced shutdown is not yet implemented.
+- AI highlight detection, transcription, scene/audio analysis, transitions, sound effects, and subtitle generation are later milestones.
+- Full Django tests and migration checks still need to be run in the user's Windows virtual environment with the project's pinned Django version.
+
+**Next steps:**
+
+- Install/verify FFmpeg and FFprobe on the Windows PC.
+- Apply the migration, run the focused Video Editor tests, and test a short gameplay + facecam sample end to end.
+- Add preview support and improve clip ordering only after the basic render is verified.
+
+**Git status:**
+
+- Implementation files prepared locally; no commit created.
+
+---
+
+
 This is the chronological record of meaningful development work on the Personal AI Homelab Platform. Entries are newest first. Design documents describe intended requirements and rationale; this log records work actually performed and verification evidence.
 
 ## 2026-10-26 — Quick Add Meals

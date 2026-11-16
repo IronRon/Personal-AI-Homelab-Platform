@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'apps.core',
     'apps.food',
     'apps.assistant',
+    'apps.video_editor.apps.VideoEditorConfig',
 ]
 
 MIDDLEWARE = [
@@ -127,6 +128,16 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Local video editor storage. Source recordings are copied here and never modified.
+VIDEO_EDITOR_STORAGE_ROOT = Path(os.environ.get(
+    'VIDEO_EDITOR_STORAGE_ROOT', BASE_DIR.parent / 'media' / 'video_editor'
+)).resolve()
+VIDEO_EDITOR_INBOX = Path(os.environ.get(
+    'VIDEO_EDITOR_INBOX', VIDEO_EDITOR_STORAGE_ROOT / 'inbox'
+)).resolve()
+FFMPEG_PATH = os.environ.get('FFMPEG_PATH', 'ffmpeg')
+FFPROBE_PATH = os.environ.get('FFPROBE_PATH', 'ffprobe')
 
 # Local Ollama configuration
 

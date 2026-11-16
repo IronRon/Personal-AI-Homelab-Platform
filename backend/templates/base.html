@@ -171,6 +171,46 @@
         font: inherit;
         text-decoration: underline;
       }
+      .video-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+      .video-project-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+      .video-panel, .video-empty { background: rgba(17, 24, 39, .82); border: 1px solid var(--border); border-radius: 16px; padding: 1.25rem; min-width: 0; }
+      .video-empty { margin-top: 1.5rem; text-align: center; padding: 3rem 1.5rem; }
+      .video-panel h2, .video-empty h2 { margin: 0 0 .65rem; font-size: 1.15rem; }
+      .video-panel h3 { font-size: .95rem; margin: 1rem 0 .5rem; }
+      .video-panel p, .video-empty p { color: var(--muted); line-height: 1.5; }
+      .video-panel-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+      .video-panel-heading h2 { margin: 0 0 .35rem; }
+      .video-panel-heading p { margin: 0; }
+      .video-status { color: #bae6fd; background: rgba(56,189,248,.12); padding: .35rem .6rem; border-radius: 999px; font-size: .75rem; white-space: nowrap; }
+      .video-stats { display: flex; flex-wrap: wrap; gap: .6rem 1rem; margin: .9rem 0; color: var(--muted); font-size: .82rem; }
+      .video-form-panel { max-width: 720px; }
+      .video-form-field { display: flex; flex-direction: column; gap: .35rem; min-width: 0; margin-bottom: .9rem; flex: 1; }
+      .video-form-field label { color: var(--text); font-weight: 600; font-size: .88rem; }
+      .video-form-field input, .video-form-field select, .video-form-field textarea { width: 100%; padding: .7rem .75rem; border-radius: 8px; border: 1px solid rgba(148,163,184,.35); background: #0b1220; color: var(--text); font: inherit; }
+      .video-form-field small, .video-muted, .video-panel small { color: var(--muted); font-size: .8rem; line-height: 1.5; }
+      .video-form-row, .video-clip-form { display: flex; align-items: end; gap: .75rem; flex-wrap: wrap; }
+      .video-form-row .video-form-field { min-width: 180px; }
+      .video-form-row .button, .video-clip-form .button { margin-bottom: .9rem; }
+      .video-path { display: inline-block; padding: .65rem .8rem; border-radius: 8px; background: #020817; color: #bae6fd; overflow-wrap: anywhere; }
+      .video-notice { background: rgba(251,191,36,.1); border: 1px solid rgba(251,191,36,.3); color: #fde68a; padding: .8rem; border-radius: 9px; font-size: .88rem; }
+      .video-inbox-list { margin-top: 1rem; padding-top: .8rem; border-top: 1px solid var(--border); }
+      .video-inbox-list > div { display: flex; justify-content: space-between; gap: 1rem; padding: .45rem 0; color: var(--text); font-size: .85rem; }
+      .video-asset-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+      .video-section-gap { margin-top: 1rem; }
+      .video-clip-list, .video-job-list { display: flex; flex-direction: column; gap: .6rem; margin-top: 1rem; }
+      .video-clip-row, .video-job-row { display: flex; align-items: center; gap: .8rem; padding: .8rem; border: 1px solid var(--border); border-radius: 10px; background: rgba(2,8,23,.45); }
+      .video-clip-row.is-excluded { opacity: .5; }
+      .video-clip-number { display: grid; place-items: center; flex: 0 0 30px; height: 30px; border-radius: 8px; background: rgba(56,189,248,.14); color: #bae6fd; font-weight: 700; }
+      .video-clip-info, .video-job-row > div:first-child { display: flex; flex-direction: column; gap: .2rem; min-width: 0; flex: 1; }
+      .video-clip-info span, .video-job-row span { color: var(--muted); font-size: .78rem; overflow-wrap: anywhere; }
+      .video-clip-info small { color: var(--muted); }
+      .video-clip-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+      .button.danger { background: rgba(248,113,113,.15); color: #fecaca; border: 1px solid rgba(248,113,113,.35); }
+      .video-total { display: flex; justify-content: space-between; padding-top: 1rem; margin-top: .8rem; border-top: 1px solid var(--border); }
+      .video-progress { width: 100px; height: 7px; border-radius: 99px; overflow: hidden; background: rgba(148,163,184,.2); }
+      .video-progress span { display: block; height: 100%; background: var(--accent-2); }
+      .video-error { color: #fca5a5 !important; }
+      @media (max-width: 760px) { .video-layout, .video-asset-groups { grid-template-columns: 1fr; } .video-clip-row { align-items: flex-start; flex-wrap: wrap; } .video-clip-actions { width: 100%; padding-left: 38px; } .video-panel-heading { flex-direction: column; } }
       .page-shell {
         background: rgba(15, 23, 42, 0.4);
         border: 1px solid var(--border);
@@ -354,6 +394,7 @@
         <nav class="nav-links" aria-label="Main navigation">
           <a href="/">Home</a>
           <a href="{% url 'food_today' %}">Food</a>
+          <a href="{% url 'video_project_list' %}">Video Editor</a>
           <a href="{% url 'assistant_chat' %}">AI Assistant</a>
         </nav>
       </div>

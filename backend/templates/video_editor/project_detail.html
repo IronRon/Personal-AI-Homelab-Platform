@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ project.name }} | Video Editor{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p><a href="{% url 'video_project_list' %}">← All video projects</a></p>
+    <h1>{{ project.name }}</h1>
+    <p>{{ project.description|default:'Highlight editing project' }}</p>
+    <div class="video-stats"><span>Target duration: {{ project.target_duration_seconds }} seconds</span><span>{{ project.get_review_mode_display }}</span><span>Created {{ project.created_at|date:'j M Y, H:i' }}</span></div>
+  </section>
+
+  <div class="video-layout">
+    <section class="video-panel">
+      <h2>1. Import recordings</h2>
+      <p>Copy your source recordings into this folder on your PC:</p>
+      <code class="video-path">media\video_editor\inbox\</code>
+      <p class="video-muted">The folder is created automatically when you open this project. Supported formats: MP4, MKV, MOV, AVI, WebM and M4V. Files are copied into the project; the originals stay untouched.</p>
+      {% if inbox_files %}
+        <form method="post" action="{% url 'video_import_asset' project.pk %}" class="video-form-row">
+          {% csrf_token %}
+          <div class="video-form-field"><label for="id_inbox_filename">Recording</label>{{ import_form.inbox_filename }}</div>
+          <div class="video-form-field"><label for="id_role">Role</label>{{ import_form.role }}</div>
+          <button class="button" type="submit">Copy into project</button>
+        </form>
+        <div class="video-inbox-list"><strong>Files currently in inbox</strong>{% for item in inbox_files %}<div><span>{{ item.name }}</span><small>{{ item.size_label }}</small></div>{% endfor %}</div>
+      {% else %}
+        <div class="video-notice">No supported recordings found. Copy your gameplay and facecam files into the inbox folder, then refresh this page.</div>
+      {% endif %}
+      <div class="video-asset-groups">
+        <div><h3>Gameplay recordings</h3>{% for asset in gameplay_assets %}<p><strong>{{ asset.original_filename }}</strong><br><small>{{ asset.duration_seconds|floatformat:2 }} sec · {{ asset.width }}×{{ asset.height }} · {{ asset.video_codec }}</small></p>{% empty %}<p class="video-muted">No gameplay recording imported yet.</p>{% endfor %}</div>
+        <div><h3>Facecam recordings</h3>{% for asset in facecam_assets %}<p><strong>{{ asset.original_filename }}</strong><br><small>{{ asset.duration_seconds|floatformat:2 }} sec · {{ asset.width }}×{{ asset.height }} · {{ asset.video_codec }}</small></p>{% empty %}<p class="video-muted">Optional. Import a facecam recording to overlay it during export.</p>{% endfor %}</div>
+      </div>
+    </section>
+
+    <section class="video-panel">
+      <h2>2. Synchronise facecam</h2>
+      <p class="video-muted">Set the timing difference between the facecam and gameplay recordings. Positive means the facecam starts later; negative means it starts earlier.</p>
+      <form method="post" action="{% url 'video_update_sync' project.pk %}">
+        {% csrf_token %}
+        <div class="video-form-field"><label for="id_facecam_sync_offset_ms">{{ sync_form.facecam_sync_offset_ms.label }}</label>{{ sync_form.facecam_sync_offset_ms }}<small>{{ sync_form.facecam_sync_offset_ms.help_text }}</small></div>
+        <button class="button secondary" type="submit">Save sync offset (currently {{ project.facecam_sync_offset_ms }} ms)</button>
+      </form>
+    </section>
+  </div>
+
+  <section class="video-panel video-section-gap">
+    <h2>3. Build your highlight reel</h2>
+    <p class="video-muted">Enter timestamps in seconds from the gameplay recording. For example, start 125.5 and end 148 creates a 22.5-second clip. Clips export in the order shown below.</p>
+    {% if gameplay_assets %}
+      <form method="post" action="{% url 'video_add_clip' project.pk %}" class="video-clip-form">
+        {% csrf_token %}
+        {% for field in clip_form %}<div class="video-form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% for error in field.errors %}<small class="video-error">{{ error }}</small>{% endfor %}</div>{% endfor %}
+        <button class="button" type="submit">Add clip</button>
+      </form>
+    {% else %}<div class="video-notice">Import a gameplay recording before adding clips.</div>{% endif %}
+
+    {% if project.clips.all %}
+      <div class="video-clip-list">
+        {% for clip in project.clips.all %}
+          <article class="video-clip-row {% if not clip.included %}is-excluded{% endif %}">
+            <div class="video-clip-number">{{ forloop.counter }}</div>
+            <div class="video-clip-info"><strong>{{ clip.title|default:'Untitled clip' }}</strong><span>{{ clip.gameplay_asset.original_filename }}</span><small>{{ clip.start_seconds }}s → {{ clip.end_seconds }}s · {{ clip.duration_seconds|floatformat:2 }} sec</small></div>
+            <div class="video-clip-actions">
+              <form method="post" action="{% url 'video_toggle_clip' project.pk clip.pk %}">{% csrf_token %}<button class="button secondary" type="submit">{% if clip.included %}Exclude{% else %}Include{% endif %}</button></form>
+              <form method="post" action="{% url 'video_delete_clip' project.pk clip.pk %}" onsubmit="return confirm('Remove this clip from the edit? The source video will not be deleted.');">{% csrf_token %}<button class="button danger" type="submit">Remove</button></form>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+      <div class="video-total"><strong>Included duration</strong><span>{{ included_duration|default_if_none:0|floatformat:2 }} seconds</span></div>
+    {% else %}<p class="video-muted">No clips added yet.</p>{% endif %}
+  </section>
+
+  <section class="video-panel video-section-gap">
+    <div class="video-panel-heading"><div><h2>4. Export</h2><p class="video-muted">Rendering runs in a separate worker so the website remains responsive.</p></div>
+      <form method="post" action="{% url 'video_render_project' project.pk %}">{% csrf_token %}<button class="button" type="submit" {% if not project.clips.all %}disabled{% endif %}>Queue highlight render</button></form>
+    </div>
+    <div class="video-job-list">
+      {% for job in jobs %}
+        <article class="video-job-row"><div><strong>Render #{{ job.pk }}</strong><span>{{ job.get_status_display }} · {{ job.message }}</span>{% if job.status == 'failed' %}<small class="video-error">{{ job.error_message|truncatechars:300 }}</small>{% endif %}{% if job.status == 'completed' %}<small><a href="{% url 'video_download_render' job.pk %}">Download {{ job.output_relative_path|cut:'projects/' }}</a></small>{% endif %}</div><div class="video-progress"><span style="width: {{ job.progress }}%"></span></div><strong>{{ job.progress }}%</strong></article>
+      {% empty %}<p class="video-muted">No render jobs yet.</p>{% endfor %}
+    </div>
+    <p class="video-muted">To process queued renders, open a second PowerShell terminal in <code>backend</code> and run <code>python manage.py run_video_worker</code>.</p>
+  </section>
+{% endblock %}

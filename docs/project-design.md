@@ -365,7 +365,9 @@ The project should not assume Studio-only features or undocumented automation be
 - use Resolve Free manually for final corrections;
 - run a dedicated proof-of-concept against the installed Resolve version before creating any hard dependency on its scripting APIs.
 
-### First video milestone
+**Implementation status (2026-11-16):** The first local deterministic workflow now exists in `backend/apps/video_editor/`. It supports project creation, local inbox imports with copy/hash verification, FFprobe metadata, manual facecam offset, timestamp-based gameplay clip selection, a database-backed render queue, and FFmpeg export. The initial output is 1920×1080 at 30 FPS with H.264/AAC; an imported facecam is overlaid in the lower-right corner. It intentionally does not invoke an LLM.
+
+The worker is started manually with `python manage.py run_video_worker`. The current implementation uses one worker process and does not yet recover jobs left running after a forced shutdown. Preview/timeline editing, clip drag ordering, transcription, automatic highlight selection, transitions, effects, and subtitles remain deferred.
 
 **Acceptance target:** Given 2–5 local gaming clips and an explicit order, the platform creates a job, verifies input files, concatenates or safely transcodes them, reports progress in the dashboard, and records the final output path and result.
 

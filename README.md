@@ -4,7 +4,7 @@ A local-first, modular platform for personal applications, information, automati
 
 The platform is intended to remain useful without AI. AI will provide natural-language interaction, analysis, recommendations, planning, and controlled tool execution on top of ordinary deterministic application features.
 
-> **Status:** Early development; Food is the currently implemented module
+> **Status:** Early development; Food and the first deterministic Video Editor workflow are implemented
 >
 > The wider architecture and technology choices remain provisional. See [docs/project-design.md](docs/project-design.md) and [docs/modules/food-design.md](docs/modules/food-design.md) for current design and implementation status.
 
@@ -113,7 +113,7 @@ The wider design document includes a provisional target structure for future app
 
 ## Current status
 
-The Django control plane currently contains a working Core home page and Food catalogue, consumption tracking with one-off Quick Add meals, Recipe and Meal Prep workflows, and simple Food Purchase and Cost History views. Actual purchases are recorded separately from estimated batch and consumption costs. Accounting, receipt imports, inventory, and other platform modules remain future work. Architecture choices not explicitly accepted in the design documents remain provisional.
+The Django control plane currently contains a working Core home page, Food catalogue and tracking workflows, and an initial deterministic Video Editor. The Video Editor supports project creation, local inbox imports, FFprobe metadata, manual facecam sync, timestamp-based clip selection, queued FFmpeg rendering, and export downloads. AI highlight detection, transcription, richer timeline editing, transitions, and effects remain future work. Actual Food purchases are recorded separately from estimated batch and consumption costs. Accounting, receipt imports, inventory, and other personal modules remain future work.
 
 ## Food MVP Showcase
 
@@ -156,6 +156,28 @@ If PowerShell policy blocks activation, invoke the interpreter directly instead 
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
+
+
+### Video Editor setup (first milestone)
+
+The Video Editor uses FFmpeg and FFprobe as external executables. On Windows, install an FFmpeg build and make sure both `ffmpeg.exe` and `ffprobe.exe` are available on `PATH`. Verify in PowerShell:
+
+```powershell
+ffmpeg -version
+ffprobe -version
+```
+
+Start Django as usual, then open `/video/`. Create a project and copy gameplay/facecam recordings into `media\video_editor\inbox\` at the repository root. Refresh the project page, import each file with its role, set the facecam offset, and add clips using start/end timestamps in seconds. The app copies source files into project storage and does not modify the originals.
+
+Rendering is processed by a separate worker. Keep a second PowerShell terminal open in `backend/` and run:
+
+```powershell
+python manage.py run_video_worker
+```
+
+The initial renderer produces a 1920×1080, 30 FPS H.264/AAC MP4. If a facecam recording is imported, it is overlaid in the lower-right corner. Render status appears on the project page; refresh the page to see updates.
+
+Local video storage defaults to `media/video_editor/`. You can override it with `VIDEO_EDITOR_STORAGE_ROOT` and `VIDEO_EDITOR_INBOX`. Executable paths can be overridden with `FFMPEG_PATH` and `FFPROBE_PATH` in the root `.env` file.
 
 ### Run the project
 

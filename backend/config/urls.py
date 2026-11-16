@@ -5,5 +5,6 @@ urlpatterns = [
     path('', include('apps.core.urls')),
     path('food/', include('apps.food.urls')),
     path('assistant/', include('apps.assistant.urls')),
+    path('video/', include('apps.video_editor.urls')),
     path('admin/', admin.site.urls),
 ]

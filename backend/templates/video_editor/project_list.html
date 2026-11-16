@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+
+{% block title %}Video Editor | Personal AI Homelab Platform{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <h1>Video Editor</h1>
+    <p>Create highlight projects, import local recordings, choose the moments you want to keep, and export a finished video. AI-assisted highlight detection will be added in a later milestone.</p>
+    <div class="actions"><a class="button" href="{% url 'video_project_create' %}">New video project</a></div>
+  </section>
+
+  {% if projects %}
+    <section class="video-project-grid">
+      {% for project in projects %}
+        <article class="video-panel">
+          <div class="video-panel-heading">
+            <div><h2><a href="{% url 'video_project_detail' project.pk %}">{{ project.name }}</a></h2><p>{{ project.description|default:'No description'|truncatechars:110 }}</p></div>
+            <span class="video-status">{{ project.get_review_mode_display }}</span>
+          </div>
+          <div class="video-stats">
+            <span>{{ project.assets.count }} recording{{ project.assets.count|pluralize }}</span>
+            <span>{{ project.clips.count }} clip{{ project.clips.count|pluralize }}</span>
+            <span>Target {{ project.target_duration_seconds|floatformat:0 }} sec</span>
+          </div>
+          <a class="button secondary" href="{% url 'video_project_detail' project.pk %}">Open project</a>
+        </article>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section class="video-empty"><h2>No video projects yet</h2><p>Create your first project to start importing and cutting recordings.</p><a class="button" href="{% url 'video_project_create' %}">Create project</a></section>
+  {% endif %}
+{% endblock %}
